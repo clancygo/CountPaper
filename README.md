@@ -62,7 +62,7 @@ CountPaper 专注个人日常记账：中文账户、收入、支出、转账、
 
 ## 开发与验证
 
-项目使用原生 Swift 和 AppKit，不依赖 Beancount 或 Fava 代码。
+项目使用原生 Swift 和 AppKit。
 
 在装有 Xcode 的 macOS 上运行：
 
