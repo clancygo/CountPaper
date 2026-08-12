@@ -11,6 +11,11 @@ struct CountPaperMain {
         let app = NSApplication.shared
         app.delegate = appDelegate
         app.setActivationPolicy(.regular)
+        // On newer macOS versions the launch notification can be delivered
+        // before a programmatic delegate observes it. Finish the AppKit launch
+        // explicitly, then build the only real application window.
+        app.finishLaunching()
+        appDelegate.launchApplicationInterface()
         app.run()
     }
 }

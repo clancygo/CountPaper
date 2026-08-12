@@ -1928,6 +1928,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         stack.alignment = .leading; stack.spacing = 18
         stack.edgeInsets = NSEdgeInsets(top: 30, left: 36, bottom: 28, right: 36)
         stack.autoresizingMask = [.width, .height]
+        // Attach the stack before activating constraints from its arranged
+        // subviews to `container`; AppKit requires a common ancestor.
+        container.addSubview(stack)
 
         dashboardTitleLabel.font = .systemFont(ofSize: 24, weight: .bold)
         stack.addArrangedSubview(dashboardTitleLabel)
@@ -1979,7 +1982,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             entry.leadingAnchor.constraint(equalTo: entryCard.leadingAnchor), entry.trailingAnchor.constraint(equalTo: entryCard.trailingAnchor),
             entry.topAnchor.constraint(equalTo: entryCard.topAnchor), entry.bottomAnchor.constraint(equalTo: entryCard.bottomAnchor)
         ])
-        entryCard.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -72).isActive = true
+        entryCard.widthAnchor.constraint(equalToConstant: 610).isActive = true
         entryCard.heightAnchor.constraint(equalToConstant: 205).isActive = true
         stack.addArrangedSubview(entryCard)
 
@@ -2001,10 +2004,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         dashboardRecentView.textContainerInset = NSSize(width: 2, height: 4)
         dashboardRecentView.setAccessibilityLabel(ui("最近交易", "Recent transactions"))
         scroll.documentView = dashboardRecentView
-        scroll.widthAnchor.constraint(equalTo: container.widthAnchor, constant: -72).isActive = true
+        scroll.widthAnchor.constraint(equalToConstant: 610).isActive = true
         scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
         stack.addArrangedSubview(scroll)
-        container.addSubview(stack)
         return container
     }
 
