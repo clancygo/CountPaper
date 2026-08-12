@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleDevelopmentRegion</key><string>zh-Hans</string>
+  <key>CFBundleDisplayName</key><string>CountPaper</string>
+  <key>CFBundleExecutable</key><string>CountPaper</string>
+  <key>CFBundleIdentifier</key><string>com.countpaper.app</string>
+  <key>CFBundleIconFile</key><string>CountPaperIcon</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>CountPaper</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>0.5.7</string>
+  <key>CFBundleVersion</key><string>115</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>UTExportedTypeDeclarations</key><array><dict>
+    <key>UTTypeConformsTo</key><array><string>public.plain-text</string></array>
+    <key>UTTypeDescription</key><string>CountPaper 账本</string>
+    <key>UTTypeIdentifier</key><string>com.countpaper.document</string>
+    <key>UTTypeTagSpecification</key><dict>
+      <key>public.filename-extension</key><array><string>countpaper</string></array>
+      <key>public.mime-type</key><array><string>text/plain</string></array>
+    </dict>
+  </dict></array>
+  <key>CFBundleDocumentTypes</key><array><dict>
+    <key>CFBundleTypeName</key><string>CountPaper 账本</string>
+    <key>CFBundleTypeExtensions</key><array><string>countpaper</string></array>
+    <key>CFBundleTypeRole</key><string>Editor</string>
+    <key>LSItemContentTypes</key><array><string>com.countpaper.document</string></array>
+  </dict></array>
+</dict></plist>
