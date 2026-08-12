@@ -1925,14 +1925,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         container.layer?.masksToBounds = true
         let stack = NSStackView(frame: container.bounds)
         stack.orientation = .vertical
-        stack.alignment = .leading; stack.spacing = 18
-        stack.edgeInsets = NSEdgeInsets(top: 30, left: 36, bottom: 28, right: 36)
-        stack.autoresizingMask = [.width, .height]
+        stack.alignment = .width; stack.spacing = 16
+        stack.edgeInsets = NSEdgeInsets(top: 26, left: 30, bottom: 24, right: 30)
+        stack.translatesAutoresizingMaskIntoConstraints = false
         // Attach the stack before activating constraints from its arranged
         // subviews to `container`; AppKit requires a common ancestor.
         container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.widthAnchor.constraint(equalToConstant: 620),
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.topAnchor.constraint(equalTo: container.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
 
-        dashboardTitleLabel.font = .systemFont(ofSize: 24, weight: .bold)
+        dashboardTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
         stack.addArrangedSubview(dashboardTitleLabel)
         let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.spacing = 10
         [dashboardIncomeLabel, dashboardExpenseLabel, dashboardNetLabel].forEach { label in
@@ -1982,15 +1988,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             entry.leadingAnchor.constraint(equalTo: entryCard.leadingAnchor), entry.trailingAnchor.constraint(equalTo: entryCard.trailingAnchor),
             entry.topAnchor.constraint(equalTo: entryCard.topAnchor), entry.bottomAnchor.constraint(equalTo: entryCard.bottomAnchor)
         ])
-        entryCard.widthAnchor.constraint(equalToConstant: 610).isActive = true
-        entryCard.heightAnchor.constraint(equalToConstant: 205).isActive = true
+        entryCard.heightAnchor.constraint(equalToConstant: 196).isActive = true
         stack.addArrangedSubview(entryCard)
 
-        let recentTitle = NSTextField(labelWithString: ui("最近交易（按日期）", "Recent Transactions (by date)"))
+        let recentTitle = NSTextField(labelWithString: ui("最近交易", "Recent Transactions"))
         recentTitle.font = .systemFont(ofSize: 14, weight: .semibold)
         let recentHeader = NSStackView(); recentHeader.orientation = .horizontal; recentHeader.alignment = .centerY
         recentHeader.addArrangedSubview(recentTitle)
-        let openTextFile = NSButton(title: ui("打开文本文件", "Open Text File"), target: self, action: #selector(openLedgerInTextEditor(_:)))
+        let openTextFile = NSButton(title: ui("编辑文本", "Edit Text"), target: self, action: #selector(openLedgerInTextEditor(_:)))
         openTextFile.bezelStyle = .texturedRounded
         openTextFile.toolTip = ui("使用系统默认或“设置”中选择的 App 打开当前账本文件", "Open the current ledger in macOS's default app or the app selected in Settings")
         openTextFile.setAccessibilityLabel(ui("用外部 App 打开文本文件", "Open text file in external app"))
@@ -2004,7 +2009,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         dashboardRecentView.textContainerInset = NSSize(width: 2, height: 4)
         dashboardRecentView.setAccessibilityLabel(ui("最近交易", "Recent transactions"))
         scroll.documentView = dashboardRecentView
-        scroll.widthAnchor.constraint(equalToConstant: 610).isActive = true
         scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
         stack.addArrangedSubview(scroll)
         return container
@@ -2043,15 +2047,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         brand.font = .systemFont(ofSize: 19, weight: .semibold)
         brand.textColor = .labelColor
         sidebarStack.addArrangedSubview(brand)
-        let brandHint = NSTextField(labelWithString: ui("纯文本个人账本", "Plain-text ledger"))
-        brandHint.font = .systemFont(ofSize: 11)
-        brandHint.textColor = .secondaryLabelColor
-        sidebarStack.addArrangedSubview(brandHint)
-        sidebarStack.setCustomSpacing(22, after: brandHint)
-        let navigationTitle = NSTextField(labelWithString: ui("浏览", "BROWSE"))
-        navigationTitle.font = .systemFont(ofSize: 10, weight: .semibold)
-        navigationTitle.textColor = .tertiaryLabelColor
-        sidebarStack.addArrangedSubview(navigationTitle)
+        sidebarStack.setCustomSpacing(18, after: brand)
         sidebarButtons = [
             makeSidebarButton(title: ui("概览", "Overview"), symbol: "chart.bar.xaxis", tag: 0),
             makeSidebarButton(title: ui("日记账", "Journal"), symbol: "list.bullet", tag: 1),
@@ -2066,10 +2062,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let sidebarSpacer = NSView()
         sidebarSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
         sidebarStack.addArrangedSubview(sidebarSpacer)
-        let formatHint = NSTextField(wrappingLabelWithString: ui("文稿即账本\n自动保存到原文件", "The document is the ledger\nAutosaves to the source file"))
-        formatHint.font = .systemFont(ofSize: 10)
-        formatHint.textColor = .tertiaryLabelColor
-        sidebarStack.addArrangedSubview(formatHint)
         sidebar.addSubview(sidebarStack)
         NSLayoutConstraint.activate([
             sidebarStack.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
@@ -2082,7 +2074,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
         let workspace = NSStackView()
         workspace.orientation = .vertical
+        workspace.alignment = .width
         workspace.spacing = 0
+        // The ledger workspace is the flexible half of the window. Without
+        // this explicit low hugging priority, NSStackView can keep it at its
+        // intrinsic report width and leave an unusable blank strip on the
+        // right of the application.
+        workspace.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        workspace.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let bar = NSStackView()
         bar.orientation = .horizontal
         bar.alignment = .centerY
@@ -2094,7 +2093,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         documentNameLabel.textColor = .labelColor
         documentNameLabel.lineBreakMode = .byTruncatingMiddle
         documentNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        bar.addArrangedSubview(documentNameLabel)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         bar.addArrangedSubview(spacer)
@@ -2127,10 +2125,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         tabBar.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 5, right: 12)
         tabBar.wantsLayer = true
         tabBar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        ledgerTabsTitle.font = .systemFont(ofSize: 11, weight: .semibold)
-        ledgerTabsTitle.textColor = .secondaryLabelColor
-        ledgerTabsTitle.setAccessibilityLabel(ui("多账本标签说明", "Multi-ledger tab description"))
-        tabBar.addArrangedSubview(ledgerTabsTitle)
         ledgerTabControl.trackingMode = .selectOne
         ledgerTabControl.segmentStyle = .texturedRounded
         ledgerTabControl.target = self
@@ -2140,7 +2134,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ledgerTabControl.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
         ledgerTabControl.widthAnchor.constraint(lessThanOrEqualToConstant: 620).isActive = true
         tabBar.addArrangedSubview(ledgerTabControl)
-        let openAnother = NSButton(title: ui("＋ 打开账本", "+ Open Ledger"), target: self, action: #selector(openDocument(_:)))
+        let openAnother = NSButton(title: "＋", target: self, action: #selector(openDocument(_:)))
         openAnother.bezelStyle = .texturedRounded
         openAnother.toolTip = ui("在新标签页中打开另一个账本", "Open another ledger in a new tab")
         openAnother.setAccessibilityLabel(ui("打开另一个账本标签", "Open another ledger tab"))
@@ -2295,21 +2289,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             reportContainer.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor)
         ])
         workspace.addArrangedSubview(body)
+        body.widthAnchor.constraint(equalTo: workspace.widthAnchor).isActive = true
         let statusBar = NSView()
-        statusBar.wantsLayer = true
-        statusBar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        statusBar.isHidden = true
         statusLabel.font = .systemFont(ofSize: 11); statusLabel.textColor = .secondaryLabelColor; statusLabel.setAccessibilityLabel("账本状态"); statusLabel.translatesAutoresizingMaskIntoConstraints = false
         statusBar.addSubview(statusLabel)
         NSLayoutConstraint.activate([
             statusLabel.leadingAnchor.constraint(equalTo: statusBar.leadingAnchor, constant: 14),
             statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBar.trailingAnchor, constant: -14),
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
-            statusBar.heightAnchor.constraint(equalToConstant: 28),
+            statusBar.heightAnchor.constraint(equalToConstant: 0),
             bar.heightAnchor.constraint(equalToConstant: 52),
             tabBar.heightAnchor.constraint(equalToConstant: 36)
         ])
         workspace.addArrangedSubview(statusBar)
         shell.addArrangedSubview(workspace)
+        // NSStackView otherwise prefers the inspector's intrinsic width on
+        // first launch. Pin the flexible workspace to the shell explicitly so
+        // every page uses the window's full remaining width.
+        workspace.widthAnchor.constraint(equalTo: shell.widthAnchor, constant: -196).isActive = true
         root.addSubview(shell); window.contentView = root
         NSLayoutConstraint.activate([
             shell.leadingAnchor.constraint(equalTo: root.leadingAnchor), shell.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -3905,7 +3903,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         reportChartView.expenseCategories = reportSummary.expenses
         reportChartView.tagExpenses = reportAnalytics.tagExpenses
         reportChartView.kind = selectedReportKind
-        statusLabel.stringValue = report.diagnostics.isEmpty ? "格式有效 · \(report.transactions) 笔交易" : "发现 \(report.diagnostics.count) 个问题；错误交易未计入统计"
+        statusLabel.stringValue = report.diagnostics.isEmpty ? "" : "\(report.diagnostics.count) 个格式问题"
         updateDashboard(for: report)
         applySyntaxHighlighting()
         layoutDocumentViews()
@@ -3916,7 +3914,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         configureInlineEntry(for: report)
         let latestMonth = report.journal.map { String($0.date.prefix(7)) }.max()
         let summary = report.personalSummary(month: latestMonth)
-        dashboardTitleLabel.stringValue = latestMonth.map { ui("\($0) 概览", "\($0) Overview") } ?? ui("开始记账", "Start Recording")
+        dashboardTitleLabel.stringValue = latestMonth.map { ui("\($0)", $0) } ?? ui("本月", "This Month")
         dashboardIncomeLabel.stringValue = ui("收入\n\(LedgerParser.format(summary.incomeTotal))", "Income\n\(LedgerParser.format(summary.incomeTotal))")
         dashboardExpenseLabel.stringValue = ui("支出\n\(LedgerParser.format(summary.expenseTotal))", "Expenses\n\(LedgerParser.format(summary.expenseTotal))")
         dashboardNetLabel.stringValue = ui("结余\n\(LedgerParser.format(summary.net))", "Net\n\(LedgerParser.format(summary.net))")
@@ -3931,11 +3929,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             }
             .prefix(8)
         dashboardRecentView.string = recent.isEmpty
-            ? ui("还没有交易。点击「记一笔」开始。", "No transactions yet. Select Record to begin.")
+            ? ui("暂无交易", "No transactions")
             : recent.map { entry in
-                let postings = entry.postings.map { "\($0.account)  \(LedgerParser.format($0.amount))" }.joined(separator: "\n")
-                return "\(entry.date)  \(entry.summary)\n\(postings)"
-            }.joined(separator: "\n\n")
+                let amount = entry.postings.first(where: { isLedgerAccount($0.account, .expense) || isLedgerAccount($0.account, .income) })?.amount
+                    ?? entry.postings.first?.amount
+                    ?? .zero
+                return "\(entry.date)    \(entry.summary)    \(LedgerParser.format(amount))"
+            }.joined(separator: "\n")
     }
 
     private func configureInlineDatePicker() {
@@ -4172,7 +4172,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         switch selectedReportKind {
         case .trend:
             output += "已计入交易  \(selectedSummary.transactions) 笔\n收入合计      \(LedgerParser.format(selectedSummary.incomeTotal))\n支出合计      \(LedgerParser.format(selectedSummary.expenseTotal))\n收支结余      \(LedgerParser.format(selectedSummary.net))\n支出笔数      \(analytics.expenseTransactions) 笔\n单笔平均支出  \(LedgerParser.format(analytics.averageExpense))\n"
-            output += "\n说明\n柱状显示每月收入和支出，曲线显示每月结余；最多显示最近六个月。"
         case .category:
             output += "支出合计      \(LedgerParser.format(selectedSummary.expenseTotal))\n支出笔数      \(analytics.expenseTransactions) 笔\n"
             if let category = analytics.largestExpenseAccount { output += "最大支出分类  \(category) · \(LedgerParser.format(analytics.largestExpense))\n" }
@@ -4183,7 +4182,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         case .tag:
             output += "带标签支出笔数  \(analytics.expenseTransactions) 笔\n\n标签明细\n"
             output += analytics.tagExpenses.isEmpty ? "暂无带标签的支出。\n" : analytics.tagExpenses.sorted(by: { $0.value > $1.value }).map { "#\($0.key)  \(LedgerParser.format($0.value))" }.joined(separator: "\n") + "\n"
-            output += "\n说明\n同一笔交易有多个标签时，会分别计入每个标签，不应将标签金额直接相加。"
         }
         return output
     }
