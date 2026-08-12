@@ -1921,33 +1921,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func buildDashboard() -> NSView {
         let container = NSView()
         container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor(calibratedWhite: 0.965, alpha: 1).cgColor
+        container.layer?.backgroundColor = NSColor(calibratedWhite: 0.972, alpha: 1).cgColor
         container.layer?.masksToBounds = true
         let stack = NSStackView(frame: container.bounds)
         stack.orientation = .vertical
-        stack.alignment = .width; stack.spacing = 16
-        stack.edgeInsets = NSEdgeInsets(top: 26, left: 30, bottom: 24, right: 30)
+        stack.alignment = .width; stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 30, left: 28, bottom: 28, right: 28)
         stack.translatesAutoresizingMaskIntoConstraints = false
         // Attach the stack before activating constraints from its arranged
         // subviews to `container`; AppKit requires a common ancestor.
         container.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.widthAnchor.constraint(equalToConstant: 620),
+            stack.widthAnchor.constraint(equalToConstant: 700),
             stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
 
-        dashboardTitleLabel.font = .systemFont(ofSize: 22, weight: .bold)
+        dashboardTitleLabel.font = .systemFont(ofSize: 19, weight: .semibold)
+        dashboardTitleLabel.alignment = .left
+        dashboardTitleLabel.widthAnchor.constraint(equalToConstant: 644).isActive = true
         stack.addArrangedSubview(dashboardTitleLabel)
-        let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.spacing = 10
+        let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.spacing = 10; statRow.distribution = .fillEqually
+        statRow.widthAnchor.constraint(equalToConstant: 644).isActive = true
         [dashboardIncomeLabel, dashboardExpenseLabel, dashboardNetLabel].forEach { label in
-            label.font = .systemFont(ofSize: 15, weight: .medium)
-            label.wantsLayer = true; label.layer?.cornerRadius = 10
-            label.layer?.backgroundColor = NSColor(calibratedWhite: 0.93, alpha: 1).cgColor
+            label.font = .systemFont(ofSize: 14, weight: .medium)
+            label.wantsLayer = true; label.layer?.cornerRadius = 12
+            label.layer?.backgroundColor = NSColor(calibratedWhite: 0.945, alpha: 1).cgColor
             label.alignment = .center
-            label.widthAnchor.constraint(equalToConstant: 170).isActive = true
-            label.heightAnchor.constraint(equalToConstant: 64).isActive = true
+            label.heightAnchor.constraint(equalToConstant: 70).isActive = true
             statRow.addArrangedSubview(label)
         }
         stack.addArrangedSubview(statRow)
@@ -1955,13 +1957,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let entryCard = NSView(); entryCard.wantsLayer = true; entryCard.layer?.cornerRadius = 12
         entryCard.layer?.backgroundColor = NSColor(calibratedWhite: 1, alpha: 1).cgColor
         entryCard.layer?.borderWidth = 0.5; entryCard.layer?.borderColor = NSColor(calibratedWhite: 0.82, alpha: 1).cgColor
-        let entry = NSStackView(); entry.orientation = .vertical; entry.alignment = .leading; entry.spacing = 9
-        entry.edgeInsets = NSEdgeInsets(top: 18, left: 18, bottom: 18, right: 18); entry.translatesAutoresizingMaskIntoConstraints = false
-        let entryTitle = NSTextField(labelWithString: ui("记账", "Record")); entryTitle.font = .systemFont(ofSize: 16, weight: .semibold); entry.addArrangedSubview(entryTitle)
+        entryCard.widthAnchor.constraint(equalToConstant: 644).isActive = true
+        let entry = NSStackView(); entry.orientation = .vertical; entry.alignment = .leading; entry.spacing = 8
+        entry.edgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18); entry.translatesAutoresizingMaskIntoConstraints = false
+        let entryTitle = NSTextField(labelWithString: ui("记账", "Record")); entryTitle.font = .systemFont(ofSize: 15, weight: .semibold); entry.addArrangedSubview(entryTitle)
         inlineKindControl.selectedSegment = 0; inlineKindControl.setAccessibilityLabel(ui("交易类型", "Transaction type")); entry.addArrangedSubview(inlineKindControl)
         let firstRow = NSStackView(); firstRow.orientation = .horizontal; firstRow.spacing = 8
-        inlineAmountField.placeholderString = ui("金额，如 32 57", "Amount, e.g. 32 57"); inlineAmountField.setAccessibilityLabel(ui("金额，可输入多个数字", "Amount; multiple values supported")); inlineAmountField.widthAnchor.constraint(equalToConstant: 120).isActive = true
-        inlineSummaryField.placeholderString = ui("摘要（可选）", "Description (optional)"); inlineSummaryField.widthAnchor.constraint(equalToConstant: 180).isActive = true
+        inlineAmountField.placeholderString = ui("金额，如 32 57", "Amount, e.g. 32 57"); inlineAmountField.setAccessibilityLabel(ui("金额，可输入多个数字", "Amount; multiple values supported")); inlineAmountField.widthAnchor.constraint(equalToConstant: 138).isActive = true
+        inlineSummaryField.placeholderString = ui("摘要（可选）", "Description (optional)"); inlineSummaryField.widthAnchor.constraint(equalToConstant: 210).isActive = true
         configureInlineDatePicker()
         configureInlineDateShortcutButtons()
         inlineDateButton.target = self; inlineDateButton.action = #selector(showInlineDateCalendar(_:))
@@ -1974,10 +1977,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         updateInlineDateButtonTitle()
         firstRow.addArrangedSubview(inlineAmountField); firstRow.addArrangedSubview(inlineSummaryField); firstRow.addArrangedSubview(inlineTodayButton); firstRow.addArrangedSubview(inlineYesterdayButton); firstRow.addArrangedSubview(inlineDateButton); entry.addArrangedSubview(firstRow)
         let accountRow = NSStackView(); accountRow.orientation = .horizontal; accountRow.spacing = 8
-        inlineDestinationLabel.widthAnchor.constraint(equalToConstant: 84).isActive = true
-        inlineDestinationPicker.widthAnchor.constraint(equalToConstant: 190).isActive = true
-        inlineSourceLabel.widthAnchor.constraint(equalToConstant: 84).isActive = true
-        inlineSourcePicker.widthAnchor.constraint(equalToConstant: 190).isActive = true
+        inlineDestinationLabel.widthAnchor.constraint(equalToConstant: 70).isActive = true
+        inlineDestinationPicker.widthAnchor.constraint(equalToConstant: 224).isActive = true
+        inlineSourceLabel.widthAnchor.constraint(equalToConstant: 70).isActive = true
+        inlineSourcePicker.widthAnchor.constraint(equalToConstant: 224).isActive = true
         accountRow.addArrangedSubview(inlineDestinationLabel); accountRow.addArrangedSubview(inlineDestinationPicker); accountRow.addArrangedSubview(inlineSourceLabel); accountRow.addArrangedSubview(inlineSourcePicker); entry.addArrangedSubview(accountRow)
         let actionRow = NSStackView(); actionRow.orientation = .horizontal; actionRow.spacing = 8
         inlineSuggestionPicker.widthAnchor.constraint(equalToConstant: 220).isActive = true; inlineSuggestionPicker.setAccessibilityLabel(ui("最近交易模板", "Recent transaction templates"))
@@ -1988,12 +1991,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             entry.leadingAnchor.constraint(equalTo: entryCard.leadingAnchor), entry.trailingAnchor.constraint(equalTo: entryCard.trailingAnchor),
             entry.topAnchor.constraint(equalTo: entryCard.topAnchor), entry.bottomAnchor.constraint(equalTo: entryCard.bottomAnchor)
         ])
-        entryCard.heightAnchor.constraint(equalToConstant: 196).isActive = true
+        entryCard.heightAnchor.constraint(equalToConstant: 188).isActive = true
         stack.addArrangedSubview(entryCard)
 
         let recentTitle = NSTextField(labelWithString: ui("最近交易", "Recent Transactions"))
         recentTitle.font = .systemFont(ofSize: 14, weight: .semibold)
         let recentHeader = NSStackView(); recentHeader.orientation = .horizontal; recentHeader.alignment = .centerY
+        recentHeader.widthAnchor.constraint(equalToConstant: 644).isActive = true
         recentHeader.addArrangedSubview(recentTitle)
         let openTextFile = NSButton(title: ui("编辑文本", "Edit Text"), target: self, action: #selector(openLedgerInTextEditor(_:)))
         openTextFile.bezelStyle = .texturedRounded
@@ -2003,14 +2007,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         recentHeader.addArrangedSubview(openTextFile)
         stack.addArrangedSubview(recentHeader)
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.borderType = .noBorder
+        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 10; scroll.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        scroll.widthAnchor.constraint(equalToConstant: 644).isActive = true
         dashboardRecentView.isEditable = false; dashboardRecentView.isSelectable = true
         dashboardRecentView.textColor = .labelColor; dashboardRecentView.backgroundColor = .clear
         dashboardRecentView.font = .systemFont(ofSize: 13, weight: .regular)
         dashboardRecentView.textContainerInset = NSSize(width: 2, height: 4)
         dashboardRecentView.setAccessibilityLabel(ui("最近交易", "Recent transactions"))
         scroll.documentView = dashboardRecentView
-        scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 142).isActive = true
         stack.addArrangedSubview(scroll)
+        let bottomSpacer = NSView()
+        bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
+        stack.addArrangedSubview(bottomSpacer)
         return container
     }
 
