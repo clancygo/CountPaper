@@ -1960,8 +1960,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         entryCard.widthAnchor.constraint(equalToConstant: 644).isActive = true
         let entry = NSStackView(); entry.orientation = .vertical; entry.alignment = .leading; entry.spacing = 8
         entry.edgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18); entry.translatesAutoresizingMaskIntoConstraints = false
-        let entryTitle = NSTextField(labelWithString: ui("记账", "Record")); entryTitle.font = .systemFont(ofSize: 15, weight: .semibold); entry.addArrangedSubview(entryTitle)
-        inlineKindControl.selectedSegment = 0; inlineKindControl.setAccessibilityLabel(ui("交易类型", "Transaction type")); entry.addArrangedSubview(inlineKindControl)
+        let entryTitle = NSTextField(labelWithString: ui("记账", "Record")); entryTitle.font = .systemFont(ofSize: 15, weight: .semibold)
+        let entryHeader = NSStackView(); entryHeader.orientation = .horizontal; entryHeader.alignment = .centerY
+        entryHeader.widthAnchor.constraint(equalToConstant: 608).isActive = true
+        entryHeader.addArrangedSubview(entryTitle); entryHeader.addArrangedSubview(NSView())
+        inlineKindControl.selectedSegment = 0; inlineKindControl.setAccessibilityLabel(ui("交易类型", "Transaction type")); inlineKindControl.widthAnchor.constraint(equalToConstant: 148).isActive = true
+        entryHeader.addArrangedSubview(inlineKindControl); entry.addArrangedSubview(entryHeader)
         let firstRow = NSStackView(); firstRow.orientation = .horizontal; firstRow.spacing = 8
         inlineAmountField.placeholderString = ui("金额，如 32 57", "Amount, e.g. 32 57"); inlineAmountField.setAccessibilityLabel(ui("金额，可输入多个数字", "Amount; multiple values supported")); inlineAmountField.widthAnchor.constraint(equalToConstant: 138).isActive = true
         inlineSummaryField.placeholderString = ui("摘要（可选）", "Description (optional)"); inlineSummaryField.widthAnchor.constraint(equalToConstant: 210).isActive = true
@@ -1982,16 +1986,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         inlineSourceLabel.widthAnchor.constraint(equalToConstant: 70).isActive = true
         inlineSourcePicker.widthAnchor.constraint(equalToConstant: 224).isActive = true
         accountRow.addArrangedSubview(inlineDestinationLabel); accountRow.addArrangedSubview(inlineDestinationPicker); accountRow.addArrangedSubview(inlineSourceLabel); accountRow.addArrangedSubview(inlineSourcePicker); entry.addArrangedSubview(accountRow)
-        let actionRow = NSStackView(); actionRow.orientation = .horizontal; actionRow.spacing = 8
-        inlineSuggestionPicker.widthAnchor.constraint(equalToConstant: 220).isActive = true; inlineSuggestionPicker.setAccessibilityLabel(ui("最近交易模板", "Recent transaction templates"))
-        let save = NSButton(title: ui("记入账本", "Record"), target: self, action: #selector(recordInlineTransaction(_:))); save.bezelStyle = .rounded; save.contentTintColor = NSColor(calibratedRed: 0.32, green: 0.42, blue: 0.34, alpha: 1)
-        actionRow.addArrangedSubview(inlineSuggestionPicker); actionRow.addArrangedSubview(save); entry.addArrangedSubview(actionRow)
+        let actionRow = NSStackView(); actionRow.orientation = .horizontal; actionRow.alignment = .centerY; actionRow.spacing = 8
+        actionRow.widthAnchor.constraint(equalToConstant: 608).isActive = true
+        inlineSuggestionPicker.widthAnchor.constraint(equalToConstant: 238).isActive = true; inlineSuggestionPicker.setAccessibilityLabel(ui("最近交易模板", "Recent transaction templates"))
+        let save = NSButton(title: ui("记入账本", "Record"), target: self, action: #selector(recordInlineTransaction(_:))); save.bezelStyle = .rounded; save.contentTintColor = .controlAccentColor; save.widthAnchor.constraint(equalToConstant: 96).isActive = true; save.keyEquivalent = "\r"
+        actionRow.addArrangedSubview(inlineSuggestionPicker); actionRow.addArrangedSubview(NSView()); actionRow.addArrangedSubview(save); entry.addArrangedSubview(actionRow)
         entryCard.addSubview(entry)
         NSLayoutConstraint.activate([
             entry.leadingAnchor.constraint(equalTo: entryCard.leadingAnchor), entry.trailingAnchor.constraint(equalTo: entryCard.trailingAnchor),
             entry.topAnchor.constraint(equalTo: entryCard.topAnchor), entry.bottomAnchor.constraint(equalTo: entryCard.bottomAnchor)
         ])
-        entryCard.heightAnchor.constraint(equalToConstant: 188).isActive = true
+        entryCard.heightAnchor.constraint(equalToConstant: 158).isActive = true
         stack.addArrangedSubview(entryCard)
 
         let recentTitle = NSTextField(labelWithString: ui("最近交易", "Recent Transactions"))
@@ -2045,7 +2050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         sidebar.blendingMode = .behindWindow
         sidebar.state = .active
         sidebar.translatesAutoresizingMaskIntoConstraints = false
-        sidebar.widthAnchor.constraint(equalToConstant: 196).isActive = true
+        sidebar.widthAnchor.constraint(equalToConstant: 184).isActive = true
         let sidebarStack = NSStackView()
         sidebarStack.orientation = .vertical
         sidebarStack.alignment = .leading
@@ -2065,7 +2070,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ]
         sidebarButtons.forEach { button in
             sidebarStack.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 172).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 160).isActive = true
             button.heightAnchor.constraint(equalToConstant: 32).isActive = true
         }
         let sidebarSpacer = NSView()
@@ -2117,11 +2122,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             bar.addArrangedSubview(button)
         }
         let recordButton = NSButton(title: ui("记一笔", "Record"), target: self, action: #selector(recordTransaction(_:)))
-        recordButton.bezelStyle = .rounded
+        recordButton.bezelStyle = .texturedRounded
         recordButton.keyEquivalent = "e"
         recordButton.keyEquivalentModifierMask = [.command]
         recordButton.contentTintColor = .controlAccentColor
-        recordButton.image = NSImage(systemSymbolName: "plus.circle.fill", accessibilityDescription: recordButton.title)
+        recordButton.image = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: recordButton.title)
         recordButton.imagePosition = .imageLeading
         recordButton.setAccessibilityLabel(ui("记一笔交易", "Record a transaction"))
         bar.addArrangedSubview(recordButton)
@@ -2206,59 +2211,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         reportContainer.layer?.masksToBounds = true
         let reportStack = NSStackView(frame: reportContainer.bounds)
         reportStack.orientation = .vertical
+        reportStack.alignment = .leading
         reportStack.spacing = 0
         reportStack.autoresizingMask = [.width, .height]
         let inspectorHeader = NSStackView()
         inspectorHeader.orientation = .vertical
         inspectorHeader.alignment = .leading
-        inspectorHeader.spacing = 8
-        inspectorHeader.edgeInsets = NSEdgeInsets(top: 12, left: 14, bottom: 10, right: 14)
+        inspectorHeader.spacing = 10
+        inspectorHeader.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 14, right: 20)
         inspectorHeader.wantsLayer = true
         inspectorHeader.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.45).cgColor
-        inspectorTitleLabel.font = .systemFont(ofSize: 14, weight: .semibold)
+        inspectorTitleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        inspectorTitleLabel.alignment = .left
         inspectorTitleLabel.stringValue = ui("概览", "Overview")
         inspectorHeader.addArrangedSubview(inspectorTitleLabel)
         let journalFilters = NSStackView()
-        journalFilters.orientation = .vertical
-        journalFilters.spacing = 6
+        journalFilters.orientation = .horizontal
+        journalFilters.alignment = .centerY
+        journalFilters.spacing = 8
         journalFilters.isHidden = true
+        journalSearchField.widthAnchor.constraint(equalToConstant: 330).isActive = true
         journalFilters.addArrangedSubview(journalSearchField)
-        let filterRow = NSStackView()
-        filterRow.orientation = .horizontal
-        filterRow.spacing = 6
-        filterRow.addArrangedSubview(journalSearchScope)
-        filterRow.addArrangedSubview(journalStatusFilter)
-        journalFilters.addArrangedSubview(filterRow)
+        journalFilters.addArrangedSubview(journalSearchScope)
+        journalFilters.addArrangedSubview(journalStatusFilter)
+        journalFilters.addArrangedSubview(NSView())
         inspectorHeader.addArrangedSubview(journalFilters)
         journalFilterContainer = journalFilters
         let reportFilters = NSStackView()
-        reportFilters.orientation = .vertical
-        reportFilters.alignment = .leading
-        reportFilters.spacing = 6
+        reportFilters.orientation = .horizontal
+        reportFilters.alignment = .centerY
+        reportFilters.spacing = 8
         reportFilters.isHidden = true
-        let reportScopeRow = NSStackView(); reportScopeRow.orientation = .horizontal; reportScopeRow.spacing = 6
         reportLedgerScopePicker.addItems(withTitles: [ui("当前账本", "Current Ledger"), ui("所有打开账本", "All Open Ledgers")])
         reportLedgerScopePicker.target = self; reportLedgerScopePicker.action = #selector(changeReportLedgerScope(_:))
         reportLedgerScopePicker.setAccessibilityLabel(ui("报表账本范围", "Report ledger scope"))
-        reportLedgerScopePicker.widthAnchor.constraint(equalToConstant: 124).isActive = true
+        reportLedgerScopePicker.widthAnchor.constraint(equalToConstant: 120).isActive = true
         periodPicker.target = self; periodPicker.action = #selector(changeReportPeriod(_:))
-        periodPicker.setAccessibilityLabel(ui("报表时间", "Report period")); periodPicker.widthAnchor.constraint(equalToConstant: 138).isActive = true
+        periodPicker.setAccessibilityLabel(ui("报表时间", "Report period")); periodPicker.widthAnchor.constraint(equalToConstant: 130).isActive = true
         reportKindControl.target = self; reportKindControl.action = #selector(changeReportKind(_:))
         reportKindControl.selectedSegment = 0; reportKindControl.setAccessibilityLabel(ui("报表类型", "Report kind"))
-        reportKindControl.widthAnchor.constraint(equalToConstant: 154).isActive = true
-        reportScopeRow.addArrangedSubview(reportLedgerScopePicker); reportScopeRow.addArrangedSubview(periodPicker); reportScopeRow.addArrangedSubview(reportKindControl)
-        let reportDimensionRow = NSStackView(); reportDimensionRow.orientation = .horizontal; reportDimensionRow.spacing = 6
+        reportKindControl.widthAnchor.constraint(equalToConstant: 156).isActive = true
         reportTagPicker.target = self; reportTagPicker.action = #selector(changeReportTag(_:))
-        reportTagPicker.setAccessibilityLabel(ui("报表标签筛选", "Report tag filter")); reportTagPicker.widthAnchor.constraint(equalToConstant: 160).isActive = true
+        reportTagPicker.setAccessibilityLabel(ui("报表标签筛选", "Report tag filter")); reportTagPicker.widthAnchor.constraint(equalToConstant: 138).isActive = true
         reportAccountPicker.target = self; reportAccountPicker.action = #selector(changeReportAccount(_:))
-        reportAccountPicker.setAccessibilityLabel(ui("报表账户筛选", "Report account filter")); reportAccountPicker.widthAnchor.constraint(equalToConstant: 160).isActive = true
-        reportDimensionRow.addArrangedSubview(reportTagPicker); reportDimensionRow.addArrangedSubview(reportAccountPicker)
-        reportFilters.addArrangedSubview(reportScopeRow); reportFilters.addArrangedSubview(reportDimensionRow)
+        reportAccountPicker.setAccessibilityLabel(ui("报表账户筛选", "Report account filter")); reportAccountPicker.widthAnchor.constraint(equalToConstant: 176).isActive = true
+        reportFilters.addArrangedSubview(reportLedgerScopePicker); reportFilters.addArrangedSubview(periodPicker); reportFilters.addArrangedSubview(reportKindControl); reportFilters.addArrangedSubview(reportTagPicker); reportFilters.addArrangedSubview(reportAccountPicker); reportFilters.addArrangedSubview(NSView())
         inspectorHeader.addArrangedSubview(reportFilters)
         reportFilterContainer = reportFilters
         reportStack.addArrangedSubview(inspectorHeader)
         reportChartView.translatesAutoresizingMaskIntoConstraints = false
-        reportChartView.heightAnchor.constraint(equalToConstant: 190).isActive = true
+        reportChartView.heightAnchor.constraint(equalToConstant: 224).isActive = true
         reportChartView.isHidden = true
         reportStack.addArrangedSubview(reportChartView)
         let reportScrollView = NSScrollView()
@@ -2272,14 +2274,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         reportView.autoresizingMask = [.width]
         reportView.textContainer?.widthTracksTextView = true
         reportView.textContainer?.containerSize = NSSize(width: 360, height: CGFloat.greatestFiniteMagnitude)
-        reportView.textContainerInset = NSSize(width: 8, height: 8)
+        reportView.textContainerInset = NSSize(width: 18, height: 16)
         reportView.textColor = .labelColor
         reportView.backgroundColor = .textBackgroundColor
         reportView.isSelectable = true
         reportView.selectedTextAttributes = [.backgroundColor: NSColor(calibratedRed: 0.22, green: 0.55, blue: 0.93, alpha: 0.82), .foregroundColor: NSColor.white]
         reportView.setAccessibilityLabel("账本概览")
         reportView.onReportClick = { [weak self] offset in self?.handleReportClick(at: offset) }
-        reportView.isEditable = false; reportView.delegate = self; reportView.font = .systemFont(ofSize: 13, weight: .regular); reportScrollView.documentView = reportView; reportStack.addArrangedSubview(reportScrollView); reportContainer.addSubview(reportStack)
+        reportView.isEditable = false; reportView.delegate = self; reportView.font = .systemFont(ofSize: 14, weight: .regular); reportScrollView.documentView = reportView; reportStack.addArrangedSubview(reportScrollView); reportContainer.addSubview(reportStack)
+        NSLayoutConstraint.activate([
+            inspectorHeader.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
+            inspectorTitleLabel.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
+            journalFilters.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
+            reportFilters.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
+            reportChartView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
+            reportScrollView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
+        ])
         contentHost.addSubview(dashboard)
         contentHost.addSubview(reportContainer)
         body.addSubview(contentHost)
@@ -2308,15 +2318,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: statusBar.trailingAnchor, constant: -14),
             statusLabel.centerYAnchor.constraint(equalTo: statusBar.centerYAnchor),
             statusBar.heightAnchor.constraint(equalToConstant: 0),
-            bar.heightAnchor.constraint(equalToConstant: 52),
-            tabBar.heightAnchor.constraint(equalToConstant: 36)
+            bar.heightAnchor.constraint(equalToConstant: 46),
+            tabBar.heightAnchor.constraint(equalToConstant: 38)
         ])
         workspace.addArrangedSubview(statusBar)
         shell.addArrangedSubview(workspace)
         // NSStackView otherwise prefers the inspector's intrinsic width on
         // first launch. Pin the flexible workspace to the shell explicitly so
         // every page uses the window's full remaining width.
-        workspace.widthAnchor.constraint(equalTo: shell.widthAnchor, constant: -196).isActive = true
+        workspace.widthAnchor.constraint(equalTo: shell.widthAnchor, constant: -184).isActive = true
         root.addSubview(shell); window.contentView = root
         NSLayoutConstraint.activate([
             shell.leadingAnchor.constraint(equalTo: root.leadingAnchor), shell.trailingAnchor.constraint(equalTo: root.trailingAnchor),
@@ -3904,6 +3914,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
         reportView.setAccessibilityLabel(reportAccessibilityLabel)
         reportView.string = output
+        applyReportTypography()
         reportChartView.isHidden = sidePanelMode != .reports
         reportChartView.monthly = monthlyPersonalSummaries(entries: currentReportEntries(in: report))
         let reportEntries = currentReportEntries(in: report)
@@ -3924,9 +3935,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let latestMonth = report.journal.map { String($0.date.prefix(7)) }.max()
         let summary = report.personalSummary(month: latestMonth)
         dashboardTitleLabel.stringValue = latestMonth.map { ui("\($0)", $0) } ?? ui("本月", "This Month")
-        dashboardIncomeLabel.stringValue = ui("收入\n\(LedgerParser.format(summary.incomeTotal))", "Income\n\(LedgerParser.format(summary.incomeTotal))")
-        dashboardExpenseLabel.stringValue = ui("支出\n\(LedgerParser.format(summary.expenseTotal))", "Expenses\n\(LedgerParser.format(summary.expenseTotal))")
-        dashboardNetLabel.stringValue = ui("结余\n\(LedgerParser.format(summary.net))", "Net\n\(LedgerParser.format(summary.net))")
+        dashboardIncomeLabel.attributedStringValue = dashboardMetric(title: ui("收入", "Income"), value: LedgerParser.format(summary.incomeTotal))
+        dashboardExpenseLabel.attributedStringValue = dashboardMetric(title: ui("支出", "Expenses"), value: LedgerParser.format(summary.expenseTotal))
+        dashboardNetLabel.attributedStringValue = dashboardMetric(title: ui("结余", "Net"), value: LedgerParser.format(summary.net))
         // The text file may be organised by project, month, or manual order.
         // "Recent" must therefore be ordered by its declared date—not by where
         // a transaction happens to occur in the source—while retaining source
@@ -3940,11 +3951,64 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         dashboardRecentView.string = recent.isEmpty
             ? ui("暂无交易", "No transactions")
             : recent.map { entry in
-                let amount = entry.postings.first(where: { isLedgerAccount($0.account, .expense) || isLedgerAccount($0.account, .income) })?.amount
-                    ?? entry.postings.first?.amount
-                    ?? .zero
-                return "\(entry.date)    \(entry.summary)    \(LedgerParser.format(amount))"
+                let amount: Decimal
+                if let expense = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) { amount = expense.amount }
+                else if let income = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) { amount = -income.amount }
+                else { amount = entry.postings.first(where: { $0.amount > .zero })?.amount ?? .zero }
+                return "\(entry.date)\t\(entry.summary)\t\(LedgerParser.format(amount))"
             }.joined(separator: "\n")
+        applyDashboardRecentTypography()
+    }
+
+    private func dashboardMetric(title: String, value: String) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        paragraph.lineSpacing = 3
+        let result = NSMutableAttributedString(string: "\(title)\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph
+        ])
+        result.append(NSAttributedString(string: value, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 18, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ]))
+        return result
+    }
+
+    private func applyDashboardRecentTypography() {
+        guard let storage = dashboardRecentView.textStorage else { return }
+        let fullRange = NSRange(location: 0, length: storage.length)
+        guard fullRange.length > 0 else { return }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 2
+        paragraph.paragraphSpacing = 7
+        paragraph.tabStops = [
+            NSTextTab(textAlignment: .left, location: 112),
+            NSTextTab(textAlignment: .right, location: 618)
+        ]
+        storage.setAttributes([
+            .font: NSFont.systemFont(ofSize: 13, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph
+        ], range: fullRange)
+        let source = storage.string as NSString
+        var location = 0
+        while location < source.length {
+            let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
+            let line = source.substring(with: lineRange) as NSString
+            let firstTab = line.range(of: "\t")
+            if firstTab.location != NSNotFound {
+                storage.addAttributes([.foregroundColor: NSColor.secondaryLabelColor, .font: NSFont.systemFont(ofSize: 12)], range: NSRange(location: lineRange.location, length: firstTab.location))
+                let lastTab = line.range(of: "\t", options: .backwards)
+                if lastTab.location != NSNotFound {
+                    let amountRange = NSRange(location: lineRange.location + NSMaxRange(lastTab), length: max(0, lineRange.length - NSMaxRange(lastTab)))
+                    storage.addAttribute(.font, value: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium), range: amountRange)
+                }
+            }
+            location = NSMaxRange(lineRange)
+        }
     }
 
     private func configureInlineDatePicker() {
@@ -4082,14 +4146,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func journalText(for report: LedgerReport) -> String {
         let entries = report.journal(matching: journalQuery, field: journalSearchFieldScope, status: journalStatus)
         guard !entries.isEmpty else {
-            guard !journalQuery.isEmpty || journalStatus != .all else { return "日记账\n\n尚无有效交易。" }
+            guard !journalQuery.isEmpty || journalStatus != .all else { return "尚无交易" }
             let scope = journalSearchFieldScope == .all ? "" : "\(journalSearchFieldScope.title)中的"
             let queryText = journalQuery.isEmpty ? "" : "与「\(journalQuery)」匹配的"
             let statusText = journalStatus == .all ? "" : "\(journalStatus.title)的"
-            return "日记账\n\n没有\(queryText)\(scope)\(statusText)有效交易。"
+            return "没有\(queryText)\(scope)\(statusText)交易"
         }
-        let count = entries.count == report.journal.count ? "" : " · \(entries.count) / \(report.journal.count) 笔"
-        var output = "日记账 · 最新在前\(count)\n点按任一交易可定位到原文\n\n"
+        var output = ""
         for entry in entries.reversed() {
             let flag = entry.flag.map { " \($0)" } ?? ""
             output += "\(entry.date)\(flag)  \(entry.summary)  · 第 \(entry.startLine) 行\n"
@@ -4105,8 +4168,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private func accountTreeText(for report: LedgerReport) -> String {
-        guard !report.accounts.isEmpty else { return "账户\n\n尚未声明账户。" }
-        var output = "账户\n点按账户可查看对应流水\n\n"
+        guard !report.accounts.isEmpty else { return "尚未声明账户" }
+        var output = ""
         let notes = Dictionary(uniqueKeysWithValues: report.accountNotes.map { ($0.account, $0.text) })
         for root in ["资产", "负债", "权益", "收入", "费用"] {
             let accounts = report.accounts.filter { $0 == root || $0.hasPrefix("\(root):") }
@@ -4123,6 +4186,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             output += "\n"
         }
         return output
+    }
+
+    private func applyReportTypography() {
+        guard let storage = reportView.textStorage else { return }
+        let fullRange = NSRange(location: 0, length: storage.length)
+        guard fullRange.length > 0 else { return }
+        let baseParagraph = NSMutableParagraphStyle()
+        baseParagraph.lineSpacing = 3
+        baseParagraph.paragraphSpacing = 2
+        storage.setAttributes([
+            .font: NSFont.systemFont(ofSize: 14, weight: .regular),
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: baseParagraph
+        ], range: fullRange)
+
+        let source = storage.string as NSString
+        var location = 0
+        while location < source.length {
+            let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
+            let rawLine = source.substring(with: lineRange)
+            let trimmed = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            let leadingWhitespace = rawLine.prefix { $0 == " " || $0 == "\t" }.count
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 3
+
+            switch sidePanelMode {
+            case .journal:
+                if trimmed.range(of: "^\\d{4}-\\d{2}-\\d{2}", options: .regularExpression) != nil {
+                    paragraph.paragraphSpacingBefore = location == 0 ? 0 : 12
+                    paragraph.paragraphSpacing = 4
+                    storage.addAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .paragraphStyle: paragraph], range: lineRange)
+                } else if leadingWhitespace > 0 {
+                    storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor], range: lineRange)
+                }
+            case .accounts:
+                let isRoot = leadingWhitespace == 0 && ["资产", "负债", "权益", "收入", "费用"].contains { trimmed.hasPrefix($0 + "  ") || trimmed == $0 }
+                if isRoot {
+                    paragraph.paragraphSpacingBefore = location == 0 ? 0 : 14
+                    paragraph.paragraphSpacing = 5
+                    storage.addAttributes([.font: NSFont.systemFont(ofSize: 16, weight: .semibold), .paragraphStyle: paragraph], range: lineRange)
+                } else if leadingWhitespace > 0 {
+                    storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor], range: lineRange)
+                }
+            case .reports:
+                if location == 0 {
+                    paragraph.paragraphSpacing = 12
+                    storage.addAttributes([.font: NSFont.systemFont(ofSize: 16, weight: .semibold), .paragraphStyle: paragraph], range: lineRange)
+                } else if trimmed.contains("合计") || trimmed.contains("结余") || trimmed.contains("平均") || trimmed.contains("交易") || trimmed.contains("笔数") {
+                    storage.addAttribute(.font, value: NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .regular), range: lineRange)
+                }
+            case .overview:
+                break
+            }
+            location = NSMaxRange(lineRange)
+        }
     }
 
     private func updatePeriodPicker(for report: LedgerReport) {
