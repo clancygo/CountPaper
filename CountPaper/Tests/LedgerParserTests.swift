@@ -21,6 +21,7 @@ struct LedgerParserTests {
 
         # 2026-08-02
         - 午餐
+          - 时间: 12:35
           - 收款方: 星巴克
           - 标签: #咖啡, 日常
           - 费用:餐饮  32.50
@@ -31,18 +32,24 @@ struct LedgerParserTests {
         expect(report.transactions == 2 && report.balances["资产:现金"] == Decimal(string: "967.50"), "大纲分录应正确计算余额")
         expect(report.journal.last?.date == "2026-08-02" && report.journal.last?.summary == "午餐", "日期标题与交易条目应被正确关联")
         expect(report.journal.last?.payee == "星巴克" && report.journal.last?.tags == ["咖啡", "日常"], "缩进元数据条目应被正确解析")
+        expect(report.journal.last?.time == "12:35", "交易时间应精确解析到分钟")
         expect(ledgerTransactionDetail(report.journal.last!).contains("星巴克") && ledgerTransactionDetail(report.journal.last!).contains("#咖啡"), "最近交易应组合摘要、收款方和标签")
         expect(filteredLedgerTransactions(report.journal, query: "星巴克").count == 1, "交易管理器应能按收款方或备注检索")
         expect(filteredLedgerTransactions(report.journal, startDate: "2026-08-02", endDate: "2026-08-02", minimumAmount: 30, maximumAmount: 40, tag: "咖啡").count == 1, "交易管理器应组合日期、金额和标签筛选")
         expect(filteredLedgerTransactions(report.journal, minimumAmount: 40, tag: "咖啡").isEmpty, "交易金额范围应排除不符合记录")
         expect(report.personalSummary(month: "2026-08").expenseTotal == Decimal(string: "32.50"), "报表应按新格式正确汇总支出")
+        let reconciliationText = reconciliationModeText(entries: report.journal, accounts: report.accounts)
+        expect(reconciliationText.contains("2026-08-02 12:35") && reconciliationText.contains("资产:现金  967.50"), "逐笔对账应在线性累计后显示每笔交易后的资产余额")
+        let revisedReport = LedgerParser.parse(sample.replacingOccurrences(of: "32.50", with: "42.50").replacingOccurrences(of: "-32.50", with: "-42.50"))
+        expect(reconciliationModeText(entries: revisedReport.journal, accounts: revisedReport.accounts).contains("资产:现金  957.50"), "修改历史交易后全部后续余额应同步重算")
         let english = sample
             .replacingOccurrences(of: "currency: CNY", with: "currency: USD")
             .replacingOccurrences(of: "资产:现金", with: "Assets:Cash")
             .replacingOccurrences(of: "收入:工资", with: "Income:Salary")
             .replacingOccurrences(of: "费用:餐饮", with: "Expenses:Dining")
+            .replacingOccurrences(of: "时间:", with: "time:")
         let englishReport = LedgerParser.parse(english)
-        expect(englishReport.diagnostics.isEmpty && englishReport.personalSummary(month: "2026-08").expenseTotal == Decimal(string: "32.50"), "英文账户根级与 USD 模板应被正确解析和统计")
+        expect(englishReport.diagnostics.isEmpty && englishReport.journal.last?.time == "12:35" && englishReport.personalSummary(month: "2026-08").expenseTotal == Decimal(string: "32.50"), "英文账户根级、时间元数据与 USD 模板应被正确解析和统计")
         let combinedReport = aggregateLedgerReports([report, englishReport])
         let combinedSummary = combinedReport.personalSummary(month: "2026-08")
         expect(combinedReport.transactions == 4 && combinedSummary.expenseTotal == Decimal(string: "65.00") && combinedSummary.incomeTotal == Decimal(string: "2000.00"), "所有打开账本报表应合并各账本文本解析结果")
@@ -146,7 +153,12 @@ struct LedgerParserTests {
         let elapsed = Date().timeIntervalSince(started)
         expect(largeReport.transactions == 10_002, "大账本交易数应正确")
         expect(elapsed < 5, "一万笔交易解析耗时过长：\(elapsed)s")
-        print("LedgerParserTests passed in \(String(format: "%.3f", elapsed))s")
+        let reconciliationStarted = Date()
+        let largeReconciliation = reconciliationModeText(entries: largeReport.journal, accounts: largeReport.accounts)
+        let reconciliationElapsed = Date().timeIntervalSince(reconciliationStarted)
+        expect(largeReconciliation.contains("资产:现金"), "大账本对账应生成资产余额快照")
+        expect(reconciliationElapsed < 5, "一万笔逐笔对账生成耗时过长：\(reconciliationElapsed)s")
+        print("LedgerParserTests passed — parse 10k: \(String(format: "%.3f", elapsed))s; reconcile 10k: \(String(format: "%.3f", reconciliationElapsed))s")
     }
 
     static func expect(_ condition: @autoclosure () -> Bool, _ message: String) {

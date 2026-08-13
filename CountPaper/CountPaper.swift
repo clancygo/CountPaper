@@ -468,6 +468,7 @@ struct LedgerPosting {
 
 struct LedgerTransaction {
     let date: String
+    let time: String?
     let summary: String
     let flag: Character?
     let postings: [LedgerPosting]
@@ -501,9 +502,36 @@ func filteredLedgerTransactions(_ entries: [LedgerTransaction], query: String = 
         if let maximumAmount, amount > maximumAmount { return false }
         if let tag, !entry.tags.contains(tag) { return false }
         guard !needle.isEmpty else { return true }
-        let searchable = ([entry.date, entry.summary, entry.payee ?? "", LedgerParser.format(amount)] + entry.tags + entry.links + entry.postings.map(\.account)).joined(separator: " ").localizedLowercase
+        let searchable = ([entry.date, entry.time ?? "", entry.summary, entry.payee ?? "", LedgerParser.format(amount)] + entry.tags + entry.links + entry.postings.map(\.account)).joined(separator: " ").localizedLowercase
         return searchable.contains(needle)
     }
+}
+
+/// One chronological pass updates balances. Formatting every requested account
+/// after every transaction is inherently O(transactions × accounts), while the
+/// accounting work itself remains O(postings) and never rescans prior entries.
+func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], english: Bool = false) -> String {
+    let tracked = accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }.sorted()
+    guard !entries.isEmpty else { return english ? "No transactions" : "尚无交易" }
+    guard !tracked.isEmpty else { return english ? "No asset or liability accounts" : "尚未声明资产或负债账户" }
+    let ordered = entries.sorted {
+        if $0.date != $1.date { return $0.date < $1.date }
+        if ($0.time ?? "") != ($1.time ?? "") { return ($0.time ?? "") < ($1.time ?? "") }
+        return $0.startLine < $1.startLine
+    }
+    var balances: [String: Decimal] = [:]
+    balances.reserveCapacity(tracked.count)
+    var chunks: [String] = []
+    chunks.reserveCapacity(ordered.count)
+    for entry in ordered {
+        for posting in entry.postings where isLedgerAccount(posting.account, .asset) || isLedgerAccount(posting.account, .liability) {
+            balances[posting.account, default: .zero] += posting.amount
+        }
+        let heading = "\(entry.date) \(entry.time ?? "--:--")  \(entry.summary)  · \(english ? "line" : "第") \(entry.startLine)\(english ? "" : " 行")"
+        let rows = tracked.map { account in "    \(account)  \(LedgerParser.format(displayBalance(balances[account, default: .zero], account: account)))" }
+        chunks.append(([heading] + rows).joined(separator: "\n"))
+    }
+    return chunks.joined(separator: "\n\n")
 }
 
 func transactionMetadata(fromComment comment: String) -> (payee: String?, tags: [String]) {
@@ -1052,7 +1080,7 @@ func canonicalTransactionReplacement(source: String, date: String, summary: Stri
 /// Rebuilds only one CountPaper 0.2 outline transaction. Unknown indented
 /// content makes the transaction ineligible for form editing, preventing a
 /// convenient edit from silently discarding hand-written text.
-func canonicalOutlineTransactionBlock(source: String, summary: String, flag: Character?, payee: String?, tags: [String], links: [String] = [], destination: String, sourceAccount: String, amount: Decimal) -> String? {
+func canonicalOutlineTransactionBlock(source: String, summary: String, flag: Character?, time: String? = nil, payee: String?, tags: [String], links: [String] = [], destination: String, sourceAccount: String, amount: Decimal) -> String? {
     guard amount != .zero else { return nil }
     let lineEnding = source.contains("\r\n") ? "\r\n" : "\n"
     let normalized = source.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .newlines)
@@ -1062,7 +1090,8 @@ func canonicalOutlineTransactionBlock(source: String, summary: String, flag: Cha
     for line in lines.dropFirst() {
         guard line.hasPrefix("  - ") else { return nil }
         let body = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
-        if body.hasPrefix("收款方:") || body.hasPrefix("收款方：") ||
+        if body.hasPrefix("时间:") || body.hasPrefix("时间：") || body.hasPrefix("time:") ||
+            body.hasPrefix("收款方:") || body.hasPrefix("收款方：") ||
             body.hasPrefix("标签:") || body.hasPrefix("标签：") ||
             body.hasPrefix("链接:") || body.hasPrefix("链接：") { continue }
         let parts = body.split(whereSeparator: { $0 == " " || $0 == "\t" })
@@ -1072,6 +1101,10 @@ func canonicalOutlineTransactionBlock(source: String, summary: String, flag: Cha
     guard postingCount == 2 else { return nil }
     let marker = flag.map { " \($0)" } ?? ""
     var output = "-\(marker) \(summary)"
+    if let time, time.range(of: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", options: .regularExpression) != nil {
+        let timeKey = source.contains("  - time:") ? "time:" : "时间:"
+        output += "\(lineEnding)  - \(timeKey) \(time)"
+    }
     if let payee, !payee.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { output += "\(lineEnding)  - 收款方: \(payee.trimmingCharacters(in: .whitespacesAndNewlines))" }
     if !tags.isEmpty { output += "\(lineEnding)  - 标签: \(tags.joined(separator: ", "))" }
     if !links.isEmpty { output += "\(lineEnding)  - 链接: \(links.joined(separator: ", "))" }
@@ -1098,6 +1131,7 @@ enum LedgerParser {
         var current: [LedgerPosting] = []
         var transactionStart: Int?
         var transactionSummary: String?
+        var transactionTime: String?
         var transactionFlag: Character?
         var transactionPayee: String?
         var transactionTags: [String] = []
@@ -1129,11 +1163,12 @@ enum LedgerParser {
                     report.balances[posting.account, default: .zero] += posting.amount
                     if isLedgerAccount(posting.account, .expense) { report.expenses[posting.account, default: .zero] += posting.amount }
                 }
-                report.journal.append(LedgerTransaction(date: currentDate ?? "", summary: transactionSummary ?? "", flag: transactionFlag, postings: current, payee: transactionPayee, tags: transactionTags, links: transactionLinkValues, startLine: start, endLine: max(start, line - 1)))
+                report.journal.append(LedgerTransaction(date: currentDate ?? "", time: transactionTime, summary: transactionSummary ?? "", flag: transactionFlag, postings: current, payee: transactionPayee, tags: transactionTags, links: transactionLinkValues, startLine: start, endLine: max(start, line - 1)))
             }
             current = []
             transactionStart = nil
             transactionSummary = nil
+            transactionTime = nil
             transactionFlag = nil
             transactionPayee = nil
             transactionTags = []
@@ -1197,6 +1232,12 @@ enum LedgerParser {
             if rawLine.hasPrefix("  - ") {
                 guard transactionStart != nil else { report.diagnostics.append("错误：第 \(lineNumber) 行缩进条目没有所属交易"); continue }
                 let body = String(rawLine.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+                if let prefix = ["时间:", "时间：", "time:"].first(where: { body.hasPrefix($0) }) {
+                    let value = String(body.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                    if value.range(of: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", options: .regularExpression) != nil { transactionTime = value }
+                    else { report.diagnostics.append("错误：第 \(lineNumber) 行时间应为 24 小时制 HH:mm"); transactionHasError = true }
+                    continue
+                }
                 if body.hasPrefix("收款方:") || body.hasPrefix("收款方：") {
                     transactionPayee = String(body.dropFirst(4)).trimmingCharacters(in: .whitespaces)
                     continue
@@ -1265,7 +1306,7 @@ enum LedgerParser {
                     report.balances[posting.account, default: .zero] += posting.amount
                     if posting.account.hasPrefix("费用:") { report.expenses[posting.account, default: .zero] += posting.amount }
                 }
-                report.journal.append(LedgerTransaction(date: transactionDate ?? "", summary: transactionSummary ?? "", flag: transactionFlag, postings: current, payee: transactionPayee, tags: transactionTags, links: transactionLinkValues, startLine: start, endLine: max(start, line - 1)))
+                report.journal.append(LedgerTransaction(date: transactionDate ?? "", time: nil, summary: transactionSummary ?? "", flag: transactionFlag, postings: current, payee: transactionPayee, tags: transactionTags, links: transactionLinkValues, startLine: start, endLine: max(start, line - 1)))
             }
             current = []
             transactionStart = nil
@@ -1559,7 +1600,7 @@ final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTab
         scroll.wantsLayer = true; scroll.layer?.cornerRadius = 12; scroll.layer?.borderWidth = 0.6; scroll.layer?.borderColor = CountPaperTheme.border.cgColor
         scroll.autoresizingMask = [.width, .height]
         let columns: [(String, String, CGFloat)] = [
-            ("date", ui("日期", "Date"), 100), ("detail", ui("摘要与备注", "Description & Notes"), 285),
+            ("date", ui("日期与时间", "Date & Time"), 132), ("detail", ui("摘要与备注", "Description & Notes"), 253),
             ("account", ui("账户", "Accounts"), 230), ("tags", ui("标签", "Tags"), 130), ("amount", ui("金额", "Amount"), 90)
         ]
         for (identifier, title, width) in columns {
@@ -1621,7 +1662,7 @@ final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTab
         guard filtered.indices.contains(row), let identifier = tableColumn?.identifier else { return nil }
         let entry = filtered[row]
         let value: String = switch identifier.rawValue {
-        case "date": entry.date
+        case "date": "\(entry.date) \(entry.time ?? "--:--")"
         case "detail": ledgerTransactionDetail(entry)
         case "account": entry.postings.map(\.account).joined(separator: "  ↔  ")
         case "tags": entry.tags.map { "#\($0)" }.joined(separator: " ")
@@ -1652,6 +1693,43 @@ final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTab
         if onDelete?(entry) == true { transactions.removeAll { $0.startLine == entry.startLine }; refresh() }
     }
     @objc private func close(_ sender: Any?) { panel.orderOut(nil) }
+}
+
+final class DateRangeSelectionBinder: NSObject {
+    let picker: NSDatePicker
+    let mode: NSSegmentedControl
+    let startLabel: NSTextField
+    let endLabel: NSTextField
+    var startDate: Date
+    var endDate: Date
+    private let formatter: DateFormatter
+
+    init(picker: NSDatePicker, mode: NSSegmentedControl, startLabel: NSTextField, endLabel: NSTextField, startDate: Date, endDate: Date, formatter: DateFormatter) {
+        self.picker = picker; self.mode = mode; self.startLabel = startLabel; self.endLabel = endLabel
+        self.startDate = startDate; self.endDate = endDate; self.formatter = formatter
+        super.init(); refreshLabels()
+    }
+
+    @objc func changeMode(_ sender: NSSegmentedControl) {
+        picker.dateValue = sender.selectedSegment == 0 ? startDate : endDate
+        refreshLabels()
+    }
+    @objc func chooseDate(_ sender: NSDatePicker) {
+        if mode.selectedSegment == 0 {
+            startDate = sender.dateValue
+            if startDate > endDate { endDate = startDate }
+        } else {
+            endDate = sender.dateValue
+            if endDate < startDate { startDate = endDate }
+        }
+        refreshLabels()
+    }
+    private func refreshLabels() {
+        startLabel.stringValue = formatter.string(from: startDate)
+        endLabel.stringValue = formatter.string(from: endDate)
+        startLabel.textColor = mode.selectedSegment == 0 ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
+        endLabel.textColor = mode.selectedSegment == 1 ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
+    }
 }
 
 /// CountPaper retains a live source document in memory. Command-W shelves the
@@ -2118,7 +2196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private var parseWorkItem: DispatchWorkItem?
     private var parseGeneration = 0
     private var latestReport = LedgerReport()
-    private enum SidePanelMode { case overview, journal, accounts, reports }
+    private enum SidePanelMode { case overview, journal, reconciliation, accounts, reports }
     private var sidePanelMode: SidePanelMode = .overview
     private weak var sidePanelControl: NSSegmentedControl?
     private var sidebarButtons: [NSButton] = []
@@ -2218,9 +2296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag {
-            revealMainWindow()
-        }
+        revealMainWindow()
         return true
     }
 
@@ -2571,8 +2647,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         sidebarButtons = [
             makeSidebarButton(title: ui("概览", "Overview"), symbol: "chart.bar.xaxis", tag: 0),
             makeSidebarButton(title: ui("日记账", "Journal"), symbol: "list.bullet", tag: 1),
-            makeSidebarButton(title: ui("账户", "Accounts"), symbol: "wallet.pass", tag: 2),
-            makeSidebarButton(title: ui("报表", "Reports"), symbol: "chart.pie", tag: 3)
+            makeSidebarButton(title: ui("对账", "Reconcile"), symbol: "checkmark.rectangle.stack", tag: 2),
+            makeSidebarButton(title: ui("账户", "Accounts"), symbol: "wallet.pass", tag: 3),
+            makeSidebarButton(title: ui("报表", "Reports"), symbol: "chart.pie", tag: 4)
         ]
         sidebarButtons.forEach { button in
             sidebarStack.addArrangedSubview(button)
@@ -2622,19 +2699,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             (ui("保存", "Save"), "square.and.arrow.down", #selector(saveDocument(_:)))
         ] {
             let button = NSButton(title: "", target: self, action: action)
-            button.bezelStyle = .inline
+            button.isBordered = false; button.wantsLayer = true; button.layer?.cornerRadius = 7; button.layer?.backgroundColor = CountPaperTheme.softSurface.cgColor
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)
             button.imagePosition = .imageOnly
             button.contentTintColor = CountPaperTheme.secondaryInk
             button.toolTip = name
             button.setAccessibilityLabel(name)
-            button.widthAnchor.constraint(equalToConstant: 30).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 34).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
             bar.addArrangedSubview(button)
         }
         let recordButton = NSButton(title: ui("记一笔", "Record"), target: self, action: #selector(recordTransaction(_:)))
         stylePrimaryButton(recordButton)
-        recordButton.widthAnchor.constraint(equalToConstant: 76).isActive = true
-        recordButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        recordButton.widthAnchor.constraint(equalToConstant: 84).isActive = true
+        recordButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
         recordButton.keyEquivalent = "e"
         recordButton.keyEquivalentModifierMask = [.command]
         recordButton.image = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: recordButton.title)
@@ -2915,8 +2993,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         switch sidePanelMode {
         case .overview: return 0
         case .journal: return 1
-        case .accounts: return 2
-        case .reports: return 3
+        case .reconciliation: return 2
+        case .accounts: return 3
+        case .reports: return 4
         }
     }
 
@@ -3108,7 +3187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func changeSidebarMode(_ sender: NSButton) {
-        if sender.tag == 3 {
+        if sender.tag == 4 {
             sidePanelMode = .reports
             apply(report: latestReport)
             updateSidebarSelection()
@@ -3116,7 +3195,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
         sidePanelMode = switch sender.tag {
         case 1: .journal
-        case 2: .accounts
+        case 2: .reconciliation
+        case 3: .accounts
         default: .overview
         }
         updateSidebarSelection()
@@ -3124,7 +3204,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func changeSidePanel(_ sender: NSSegmentedControl) {
-        if sender.selectedSegment == 3 {
+        if sender.selectedSegment == 4 {
             sidePanelMode = .reports
             apply(report: latestReport)
             updateSidebarSelection()
@@ -3132,7 +3212,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
         sidePanelMode = switch sender.selectedSegment {
         case 1: .journal
-        case 2: .accounts
+        case 2: .reconciliation
+        case 3: .accounts
         default: .overview
         }
         updateSidebarSelection()
@@ -3179,31 +3260,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let dates = latestReport.journal.map(\.date).sorted()
         let alert = NSAlert()
         alert.messageText = ui("选择报表时间段", "Choose report date range")
-        alert.informativeText = ui("直接在日历中选择起始与结束日期；所有报表会立即按此范围重新计算。", "Choose the start and end dates directly in the calendars; every report will be recalculated for this range.")
-        let content = NSStackView(frame: NSRect(x: 0, y: 0, width: 230, height: 370))
+        alert.informativeText = ui("在同一日历上切换“起始”和“结束”后选日期。", "Switch between Start and End, then choose both dates on the same calendar.")
+        let content = NSStackView(frame: NSRect(x: 0, y: 0, width: 250, height: 245))
         content.orientation = .vertical
-        content.alignment = .leading
-        content.spacing = 14
-        let start = NSDatePicker()
-        start.datePickerStyle = .clockAndCalendar
-        start.datePickerElements = .yearMonthDay
-        start.dateValue = selectedReportStartDate.flatMap(formatter.date(from:)) ?? dates.first.flatMap(formatter.date(from:)) ?? Date()
-        start.setAccessibilityLabel(ui("报表开始日期", "Report start date"))
-        start.widthAnchor.constraint(equalToConstant: 220).isActive = true
-        start.heightAnchor.constraint(equalToConstant: 160).isActive = true
-        let end = NSDatePicker()
-        end.datePickerStyle = .clockAndCalendar
-        end.datePickerElements = .yearMonthDay
-        end.dateValue = selectedReportEndDate.flatMap(formatter.date(from:)) ?? dates.last.flatMap(formatter.date(from:)) ?? Date()
-        end.setAccessibilityLabel(ui("报表结束日期", "Report end date"))
-        end.widthAnchor.constraint(equalToConstant: 220).isActive = true
-        end.heightAnchor.constraint(equalToConstant: 160).isActive = true
-        let startColumn = NSStackView(); startColumn.orientation = .vertical; startColumn.alignment = .leading; startColumn.spacing = 6
-        startColumn.addArrangedSubview(NSTextField(labelWithString: ui("起始日期", "Start date"))); startColumn.addArrangedSubview(start)
-        let endColumn = NSStackView(); endColumn.orientation = .vertical; endColumn.alignment = .leading; endColumn.spacing = 6
-        endColumn.addArrangedSubview(NSTextField(labelWithString: ui("结束日期", "End date"))); endColumn.addArrangedSubview(end)
-        content.addArrangedSubview(startColumn)
-        content.addArrangedSubview(endColumn)
+        content.alignment = .centerX
+        content.spacing = 8
+        let initialStart = selectedReportStartDate.flatMap(formatter.date(from:)) ?? dates.first.flatMap(formatter.date(from:)) ?? Date()
+        let initialEnd = selectedReportEndDate.flatMap(formatter.date(from:)) ?? dates.last.flatMap(formatter.date(from:)) ?? Date()
+        let mode = NSSegmentedControl(labels: [ui("起始", "Start"), ui("结束", "End")], trackingMode: .selectOne, target: nil, action: nil)
+        mode.selectedSegment = 0; mode.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        let labels = NSStackView(); labels.orientation = .horizontal; labels.distribution = .fillEqually; labels.widthAnchor.constraint(equalToConstant: 220).isActive = true
+        let startLabel = NSTextField(labelWithString: ""); startLabel.alignment = .center; startLabel.textColor = CountPaperTheme.blue
+        let endLabel = NSTextField(labelWithString: ""); endLabel.alignment = .center; endLabel.textColor = CountPaperTheme.secondaryInk
+        labels.addArrangedSubview(startLabel); labels.addArrangedSubview(endLabel)
+        let calendar = NSDatePicker(); calendar.datePickerStyle = .clockAndCalendar; calendar.datePickerElements = .yearMonthDay; calendar.dateValue = initialStart
+        calendar.widthAnchor.constraint(equalToConstant: 220).isActive = true; calendar.heightAnchor.constraint(equalToConstant: 170).isActive = true
+        let binder = DateRangeSelectionBinder(picker: calendar, mode: mode, startLabel: startLabel, endLabel: endLabel, startDate: initialStart, endDate: initialEnd, formatter: formatter)
+        mode.target = binder; mode.action = #selector(DateRangeSelectionBinder.changeMode(_:))
+        calendar.target = binder; calendar.action = #selector(DateRangeSelectionBinder.chooseDate(_:))
+        content.addArrangedSubview(mode); content.addArrangedSubview(labels); content.addArrangedSubview(calendar)
         alert.accessoryView = content
         alert.addButton(withTitle: ui("应用", "Apply"))
         alert.addButton(withTitle: ui("取消", "Cancel"))
@@ -3211,8 +3286,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             updatePeriodPicker(for: latestReport)
             return
         }
-        let startDate = formatter.string(from: start.dateValue)
-        let endDate = formatter.string(from: end.dateValue)
+        let startDate = formatter.string(from: binder.startDate)
+        let endDate = formatter.string(from: binder.endDate)
         guard startDate <= endDate else {
             presentError(ui("开始日期不能晚于结束日期。", "The start date cannot be later than the end date."))
             updatePeriodPicker(for: latestReport)
@@ -3617,7 +3692,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             return
         }
         let original = (raw as NSString).substring(with: range)
-        guard canonicalOutlineTransactionBlock(source: original, summary: transaction.summary, flag: transaction.flag, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: transaction.postings[0].account, sourceAccount: transaction.postings[1].account, amount: transaction.postings[0].amount) != nil else {
+        guard canonicalOutlineTransactionBlock(source: original, summary: transaction.summary, flag: transaction.flag, time: transaction.time, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: transaction.postings[0].account, sourceAccount: transaction.postings[1].account, amount: transaction.postings[0].amount) != nil else {
             presentError("这笔交易含未知注释或非标准排版。请直接在原文中编辑，以保留全部内容。")
             return
         }
@@ -3668,7 +3743,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
                 alert.informativeText = "增加和减少账户不能相同。"
                 continue
             }
-            guard let replacement = canonicalOutlineTransactionBlock(source: original, summary: cleanedSummary, flag: transaction.flag, payee: cleanedPayee.isEmpty ? nil : cleanedPayee, tags: cleanedTags, links: cleanedLinks, destination: destination.titleOfSelectedItem!, sourceAccount: source.titleOfSelectedItem!, amount: value) else { return }
+            guard let replacement = canonicalOutlineTransactionBlock(source: original, summary: cleanedSummary, flag: transaction.flag, time: transaction.time, payee: cleanedPayee.isEmpty ? nil : cleanedPayee, tags: cleanedTags, links: cleanedLinks, destination: destination.titleOfSelectedItem!, sourceAccount: source.titleOfSelectedItem!, amount: value) else { return }
             let newDate = dateFormatter.string(from: date.dateValue)
             let updated = NSMutableString(string: raw)
             updated.replaceCharacters(in: range, with: newDate == transaction.date ? replacement : "")
@@ -4214,10 +4289,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func insertTransactions(date: String, summary: String, payee: String, tags: String, links: String, destination: String, source: String, amounts: [Decimal]) {
         let normalizedTags = transactionMetadata(fromComment: "标签: \(tags)").tags
         let normalizedLinks = normalizedTransactionLinks(links) ?? []
+        let timeFormatter = DateFormatter(); timeFormatter.locale = Locale(identifier: "en_US_POSIX"); timeFormatter.dateFormat = "HH:mm"
+        let timeLine = "\n  - \(appLanguage == .english ? "time:" : "时间:") \(timeFormatter.string(from: Date()))"
         let payeeLine = payee.isEmpty ? "" : "\n  - 收款方: \(payee)"
         let tagsLine = normalizedTags.isEmpty ? "" : "\n  - 标签: \(normalizedTags.joined(separator: ", "))"
         let linkLine = normalizedLinks.isEmpty ? "" : "\n  - 链接: \(normalizedLinks.joined(separator: ", "))"
-        let blocks = amounts.map { amount in "- \(summary)\(payeeLine)\(tagsLine)\(linkLine)\n  - \(destination)  \(LedgerParser.format(amount))\n  - \(source)  \(LedgerParser.format(-amount))" }
+        let blocks = amounts.map { amount in "- \(summary)\(timeLine)\(payeeLine)\(tagsLine)\(linkLine)\n  - \(destination)  \(LedgerParser.format(amount))\n  - \(source)  \(LedgerParser.format(-amount))" }
         let original = textView.string
         let consolidated = consolidatedLedgerDateSections(original).text
         let insertion = ledgerTransactionInsertion(in: consolidated, date: date, transactionBlocks: blocks)
@@ -4416,7 +4493,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     private func handleReportClick(at offset: Int) {
         switch sidePanelMode {
-        case .journal: openJournalEntry(atReportOffset: offset)
+        case .journal, .reconciliation: openJournalEntry(atReportOffset: offset)
         case .accounts: openAccountJournal(atReportOffset: offset)
         case .overview, .reports: break
         }
@@ -4491,6 +4568,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         inspectorTitleLabel.stringValue = switch sidePanelMode {
         case .overview: ui("概览", "Overview")
         case .journal: ui("日记账", "Journal")
+        case .reconciliation: ui("对账", "Reconcile")
         case .accounts: ui("账户", "Accounts")
         case .reports: ui("报表", "Reports")
         }
@@ -4498,12 +4576,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         switch sidePanelMode {
         case .overview: output = overviewText(for: report)
         case .journal: output = journalText(for: report)
+        case .reconciliation: output = reconciliationModeText(entries: report.journal, accounts: report.accounts, english: appLanguage == .english)
         case .accounts: output = accountTreeText(for: report)
         case .reports: output = reportText(for: report)
         }
         let reportAccessibilityLabel = switch sidePanelMode {
         case .overview: "账本概览"
         case .journal: "日记账"
+        case .reconciliation: "逐笔对账"
         case .accounts: "账户树"
         case .reports: "个人收支报表"
         }
@@ -4551,12 +4631,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         dashboardRecentView.string = recent.isEmpty
             ? ui("暂无交易", "No transactions")
             : recent.map { entry in
-                let account = entry.postings.first(where: { isLedgerAccount($0.account, .expense) || isLedgerAccount($0.account, .income) })?.account
-                    ?? entry.postings.first?.account ?? ""
                 let fullDetail = ledgerTransactionDetail(entry)
-                let detail = fullDetail.count > 24 ? String(fullDetail.prefix(23)) + "…" : fullDetail
-                let compactAccount = account.count > 15 ? String(account.prefix(14)) + "…" : account
-                return "\(entry.date)\t\(detail)\t\(compactAccount)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
+                let detail = fullDetail.count > 19 ? String(fullDetail.prefix(18)) + "…" : fullDetail
+                let accountPair = entry.postings.prefix(2).map(\.account).joined(separator: " ↔ ")
+                let compactAccounts = accountPair.count > 24 ? String(accountPair.prefix(23)) + "…" : accountPair
+                return "\(entry.date) \(entry.time ?? "--:--")\t\(detail)\t\(compactAccounts)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
             }.joined(separator: "\n")
         applyDashboardRecentTypography()
     }
@@ -4617,7 +4696,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         guard let components = editableComponents(for: transaction),
               let range = ledgerSourceRange(in: textView.string, fromLine: transaction.startLine, throughLine: transaction.endLine) else { return }
         let original = (textView.string as NSString).substring(with: range)
-        guard canonicalOutlineTransactionBlock(source: original, summary: transaction.summary, flag: transaction.flag, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: components.destination.account, sourceAccount: components.source.account, amount: components.destination.amount) != nil else {
+        guard canonicalOutlineTransactionBlock(source: original, summary: transaction.summary, flag: transaction.flag, time: transaction.time, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: components.destination.account, sourceAccount: components.source.account, amount: components.destination.amount) != nil else {
             presentError(ui("这笔交易包含复杂或无法识别的手写内容，请使用“编辑文本”保留原样修改。", "This transaction contains complex hand-written content. Use Edit Text to preserve it while editing."))
             return
         }
@@ -4705,8 +4784,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         paragraph.lineSpacing = 2
         paragraph.paragraphSpacing = 7
         paragraph.tabStops = [
-            NSTextTab(textAlignment: .left, location: 100),
-            NSTextTab(textAlignment: .left, location: 400),
+            NSTextTab(textAlignment: .left, location: 132),
+            NSTextTab(textAlignment: .left, location: 330),
             NSTextTab(textAlignment: .right, location: 590)
         ]
         storage.setAttributes([
@@ -4853,7 +4932,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let enteredSummary = inlineSummaryField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.calendar = Calendar(identifier: .gregorian); formatter.dateFormat = "yyyy-MM-dd"
         let newDate = formatter.string(from: inlineDatePicker.dateValue)
-        guard let replacement = canonicalOutlineTransactionBlock(source: original, summary: enteredSummary.isEmpty ? fallback : enteredSummary, flag: transaction.flag, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: destination, sourceAccount: source, amount: amount) else {
+        guard let replacement = canonicalOutlineTransactionBlock(source: original, summary: enteredSummary.isEmpty ? fallback : enteredSummary, flag: transaction.flag, time: transaction.time, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: destination, sourceAccount: source, amount: amount) else {
             presentError(ui("无法安全修改这笔交易，请使用“编辑文本”。", "This transaction cannot be edited safely. Use Edit Text instead."))
             return
         }
@@ -4994,7 +5073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             paragraph.lineSpacing = 3
 
             switch sidePanelMode {
-            case .journal:
+            case .journal, .reconciliation:
                 if trimmed.range(of: "^\\d{4}-\\d{2}-\\d{2}", options: .regularExpression) != nil {
                     paragraph.paragraphSpacingBefore = location == 0 ? 0 : 12
                     paragraph.paragraphSpacing = 4
@@ -5116,6 +5195,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         formatter.calendar = Calendar(identifier: .gregorian)
         formatter.dateFormat = "yyyy-MM-dd"
         let today = formatter.string(from: Date())
+        let timeFormatter = DateFormatter(); timeFormatter.locale = Locale(identifier: "en_US_POSIX"); timeFormatter.dateFormat = "HH:mm"
+        let now = timeFormatter.string(from: Date())
         if language == .english {
             return """
             ---
@@ -5134,6 +5215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
             # \(today)
             - Lunch
+              - time: \(now)
               - Expenses:Dining  12.50
               - Assets:Cash  -12.50
             """
@@ -5156,6 +5238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
         # \(today)
         - 今日午餐
+          - 时间: \(now)
           - 费用:餐饮  32.50
           - 资产:现金  -32.50
         """
@@ -5166,6 +5249,13 @@ extension AppDelegate: NSWindowDelegate {
     func windowDidResize(_ notification: Notification) { layoutDocumentViews() }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        confirmClosingAllLedgers()
+        // A document window's red close button shelves the editing session.
+        // Keeping one live NSWindow eliminates AppKit/Launch Services races in
+        // which a later Finder open event targets a deallocated window.
+        if sender === window {
+            sender.orderOut(nil)
+            return false
+        }
+        return true
     }
 }
