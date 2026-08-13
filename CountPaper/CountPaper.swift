@@ -2703,8 +2703,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let bar = NSStackView()
         bar.orientation = .horizontal
         bar.alignment = .centerY
-        bar.spacing = 8
-        bar.edgeInsets = NSEdgeInsets(top: 8, left: 16, bottom: 8, right: 14)
+        bar.spacing = 6
+        bar.edgeInsets = NSEdgeInsets(top: 6, left: 16, bottom: 6, right: 14)
         bar.wantsLayer = true
         bar.layer?.backgroundColor = CountPaperTheme.canvas.cgColor
         documentNameLabel.font = .systemFont(ofSize: 14, weight: .semibold)
@@ -2720,24 +2720,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             (ui("保存", "Save"), "square.and.arrow.down", #selector(saveDocument(_:)))
         ] {
             let button = NSButton(title: "", target: self, action: action)
-            button.isBordered = false; button.wantsLayer = true; button.layer?.cornerRadius = 7; button.layer?.backgroundColor = CountPaperTheme.softSurface.cgColor
-            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)
+            button.isBordered = false; button.wantsLayer = true; button.layer?.cornerRadius = 6; button.layer?.backgroundColor = CountPaperTheme.softSurface.cgColor
+            button.controlSize = .small
+            let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)?.withSymbolConfiguration(symbolConfiguration)
             button.imagePosition = .imageOnly
             button.contentTintColor = CountPaperTheme.secondaryInk
             button.toolTip = name
             button.setAccessibilityLabel(name)
-            button.widthAnchor.constraint(equalToConstant: 34).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 28).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 26).isActive = true
             bar.addArrangedSubview(button)
         }
         let recordButton = NSButton(title: ui("记一笔", "Record"), target: self, action: #selector(recordTransaction(_:)))
         stylePrimaryButton(recordButton)
-        recordButton.widthAnchor.constraint(equalToConstant: 84).isActive = true
-        recordButton.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        recordButton.controlSize = .small
+        recordButton.font = .systemFont(ofSize: 11.5, weight: .semibold)
+        recordButton.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        recordButton.heightAnchor.constraint(equalToConstant: 26).isActive = true
         recordButton.keyEquivalent = "e"
         recordButton.keyEquivalentModifierMask = [.command]
-        recordButton.image = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: recordButton.title)
+        let recordSymbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        recordButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: recordButton.title)?.withSymbolConfiguration(recordSymbolConfiguration)
         recordButton.imagePosition = .imageLeading
+        recordButton.imageHugsTitle = true
+        setPrimaryButtonTitle(recordButton, recordButton.title)
         recordButton.setAccessibilityLabel(ui("记一笔交易", "Record a transaction"))
         bar.addArrangedSubview(recordButton)
         workspace.addArrangedSubview(bar)
