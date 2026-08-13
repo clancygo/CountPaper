@@ -1250,6 +1250,17 @@ final class JournalReportTextView: NSTextView {
 final class CountPaperWindow: NSWindow {
     var onCommandW: (() -> Void)?
 
+    override func sendEvent(_ event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if event.type == .keyDown,
+           modifiers == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "w" {
+            onCommandW?()
+            return
+        }
+        super.sendEvent(event)
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
@@ -1712,7 +1723,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private var selectedReportKind: PersonalReportKind = .trend
     private var hasInitializedReportPeriod = false
     private var hasCompletedLaunch = false
-    private var pendingOpenURL: URL?
+    private var pendingOpenURLs: [URL] = []
     private var lastKnownFileSignature: LedgerFileSignature?
     private var hasExternalConflict = false
     private var fileMonitorTimer: Timer?
@@ -1758,8 +1769,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         buildMenu()
         buildWindow()
         buildSourceWindow()
-        if let url = pendingOpenURL { loadDocument(at: url) }
-        else { loadUntitledSample() }
+        if pendingOpenURLs.isEmpty {
+            loadUntitledSample()
+        } else {
+            let urls = pendingOpenURLs
+            pendingOpenURLs = []
+            urls.forEach(loadDocument(at:))
+        }
         fileMonitorTimer = Timer.scheduledTimer(timeInterval: 1.5, target: self, selector: #selector(checkForExternalChanges), userInfo: nil, repeats: true)
         window.makeKeyAndOrderFront(nil)
         DispatchQueue.main.async { [weak self] in self?.layoutDocumentViews() }
@@ -1793,20 +1809,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     func applicationWillTerminate(_ notification: Notification) { fileMonitorTimer?.invalidate() }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard let url = urls.first else { return }
+        let ledgerURLs = urls.filter { $0.isFileURL && $0.pathExtension.lowercased() == "countpaper" }
         // Finder may deliver an open event while restoring a shelved app. This
         // delegate is already called on the main thread: do the work here.
         // Posting another main-queue block used to retain a stale window path
         // after Command-W, which is the crash reported by users reopening files.
-        guard url.isFileURL, url.pathExtension.lowercased() == "countpaper" else {
+        guard !ledgerURLs.isEmpty else {
             revealMainWindow()
             return
         }
         guard window != nil else {
-            pendingOpenURL = url
+            pendingOpenURLs.append(contentsOf: ledgerURLs)
             return
         }
-        loadDocument(at: url)
+        ledgerURLs.forEach(loadDocument(at:))
         revealMainWindow()
     }
 
@@ -1841,10 +1857,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let hideWindow = fileMenu.addItem(withTitle: ui("隐藏窗口", "Hide Window"), action: #selector(hideMainWindow(_:)), keyEquivalent: "w")
         hideWindow.target = self
         fileMenu.addItem(withTitle: ui("从磁盘重新载入", "Reload from Disk"), action: #selector(reloadFromDisk(_:)), keyEquivalent: "")
-        fileMenu.addItem(withTitle: "设为 .countpaper 默认打开应用", action: #selector(setAsDefaultEditor(_:)), keyEquivalent: "")
-        fileMenu.addItem(withTitle: "导出当前收支报表 CSV…", action: #selector(exportReportCSV(_:)), keyEquivalent: "")
-        fileMenu.addItem(withTitle: "导出当前日记账 CSV…", action: #selector(exportJournalCSV(_:)), keyEquivalent: "")
-        let recent = NSMenuItem(title: "最近使用", action: nil, keyEquivalent: "")
+        fileMenu.addItem(withTitle: ui("设为 .countpaper 默认打开应用", "Set as Default .countpaper App"), action: #selector(setAsDefaultEditor(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: ui("导出当前收支报表 CSV…", "Export Current Report CSV…"), action: #selector(exportReportCSV(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: ui("导出当前日记账 CSV…", "Export Current Journal CSV…"), action: #selector(exportJournalCSV(_:)), keyEquivalent: "")
+        let recent = NSMenuItem(title: ui("最近使用", "Recent Documents"), action: nil, keyEquivalent: "")
         recent.submenu = recentMenu
         fileMenu.addItem(recent)
         rebuildRecentMenu()
@@ -1853,32 +1869,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         editMenu.addItem(withTitle: ui("撤销", "Undo"), action: Selector(("undo:")), keyEquivalent: "z")
         editMenu.addItem(withTitle: ui("重做", "Redo"), action: Selector(("redo:")), keyEquivalent: "Z")
         editMenu.addItem(.separator())
-        editMenu.addItem(withTitle: "剪切", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
-        editMenu.addItem(withTitle: "复制", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
-        editMenu.addItem(withTitle: "粘贴", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
-        editMenu.addItem(withTitle: "全选", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
-        editMenu.addItem(withTitle: "向右缩进", action: #selector(indentSelectedLines(_:)), keyEquivalent: "]")
-        editMenu.addItem(withTitle: "向左缩进", action: #selector(outdentSelectedLines(_:)), keyEquivalent: "[")
-        let find = editMenu.addItem(withTitle: "查找…", action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: "f")
+        editMenu.addItem(withTitle: ui("剪切", "Cut"), action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: ui("复制", "Copy"), action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: ui("粘贴", "Paste"), action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: ui("全选", "Select All"), action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editMenu.addItem(withTitle: ui("向右缩进", "Indent Right"), action: #selector(indentSelectedLines(_:)), keyEquivalent: "]")
+        editMenu.addItem(withTitle: ui("向左缩进", "Indent Left"), action: #selector(outdentSelectedLines(_:)), keyEquivalent: "[")
+        let find = editMenu.addItem(withTitle: ui("查找…", "Find…"), action: #selector(NSTextView.performFindPanelAction(_:)), keyEquivalent: "f")
         find.tag = Int(NSFindPanelAction.showFindPanel.rawValue)
-        editMenu.addItem(withTitle: "跳转到行…", action: #selector(goToLine(_:)), keyEquivalent: "l")
+        editMenu.addItem(withTitle: ui("跳转到行…", "Go to Line…"), action: #selector(goToLine(_:)), keyEquivalent: "l")
         let ledger = NSMenuItem(title: ui("账本", "Ledger"), action: nil, keyEquivalent: ""); menu.addItem(ledger)
         let ledgerMenu = NSMenu(title: ui("账本", "Ledger")); ledger.submenu = ledgerMenu
         ledgerMenu.addItem(withTitle: ui("记一笔…", "Record Transaction…"), action: #selector(recordTransaction(_:)), keyEquivalent: "e")
         ledgerMenu.addItem(.separator())
-        ledgerMenu.addItem(withTitle: "添加账户…", action: #selector(addAccount(_:)), keyEquivalent: "a")
-        ledgerMenu.addItem(withTitle: "添加账户备注…", action: #selector(addAccountNote(_:)), keyEquivalent: "")
-        ledgerMenu.addItem(withTitle: "添加对账记录…", action: #selector(addReconciliation(_:)), keyEquivalent: "")
-        ledgerMenu.addItem(withTitle: "添加事件…", action: #selector(addEvent(_:)), keyEquivalent: "")
-        ledgerMenu.addItem(withTitle: "编辑光标所在交易…", action: #selector(editTransactionAtCursor(_:)), keyEquivalent: "")
-        ledgerMenu.addItem(withTitle: "打开光标所在交易的链接…", action: #selector(openTransactionLinkAtCursor(_:)), keyEquivalent: "")
-        ledgerMenu.addItem(withTitle: "标记待确认／确认光标所在交易", action: #selector(toggleTransactionStatusAtCursor(_:)), keyEquivalent: "")
-        ledgerMenu.addItem(withTitle: "删除光标所在交易…", action: #selector(deleteTransactionAtCursor(_:)), keyEquivalent: "")
-        ledgerMenu.addItem(withTitle: "重新校验", action: #selector(reparseNow), keyEquivalent: "r")
-        ledgerMenu.addItem(withTitle: "跳到下一个错误", action: #selector(jumpToNextDiagnostic(_:)), keyEquivalent: "j")
-        let help = NSMenuItem(title: "帮助", action: nil, keyEquivalent: ""); menu.addItem(help)
-        let helpMenu = NSMenu(title: "帮助"); help.submenu = helpMenu
-        helpMenu.addItem(withTitle: "CountPaper 文本格式速查", action: #selector(showFormatQuickReference(_:)), keyEquivalent: "?")
+        ledgerMenu.addItem(withTitle: ui("添加账户…", "Add Account…"), action: #selector(addAccount(_:)), keyEquivalent: "a")
+        ledgerMenu.addItem(withTitle: ui("添加账户备注…", "Add Account Note…"), action: #selector(addAccountNote(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(withTitle: ui("添加对账记录…", "Add Reconciliation…"), action: #selector(addReconciliation(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(withTitle: ui("添加事件…", "Add Event…"), action: #selector(addEvent(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(withTitle: ui("编辑光标所在交易…", "Edit Transaction at Cursor…"), action: #selector(editTransactionAtCursor(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(withTitle: ui("打开光标所在交易的链接…", "Open Transaction Link at Cursor…"), action: #selector(openTransactionLinkAtCursor(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(withTitle: ui("标记待确认／确认光标所在交易", "Toggle Transaction Confirmation"), action: #selector(toggleTransactionStatusAtCursor(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(withTitle: ui("删除光标所在交易…", "Delete Transaction at Cursor…"), action: #selector(deleteTransactionAtCursor(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(withTitle: ui("重新校验", "Validate Again"), action: #selector(reparseNow), keyEquivalent: "r")
+        ledgerMenu.addItem(withTitle: ui("跳到下一个错误", "Go to Next Error"), action: #selector(jumpToNextDiagnostic(_:)), keyEquivalent: "j")
+        let help = NSMenuItem(title: ui("帮助", "Help"), action: nil, keyEquivalent: ""); menu.addItem(help)
+        let helpMenu = NSMenu(title: ui("帮助", "Help")); help.submenu = helpMenu
+        helpMenu.addItem(withTitle: ui("CountPaper 文本格式速查", "CountPaper Text Format Reference"), action: #selector(showFormatQuickReference(_:)), keyEquivalent: "?")
         NSApp.mainMenu = menu
     }
 
@@ -2884,7 +2900,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func openDocument(_ sender: Any?) {
-        let panel = NSOpenPanel(); panel.allowedContentTypes = [countPaperContentType, .plainText]; panel.allowsMultipleSelection = false
+        let panel = NSOpenPanel(); panel.allowedContentTypes = [countPaperContentType]; panel.allowsMultipleSelection = false
         guard panel.runModal() == .OK, let url = panel.url else { return }
         loadDocument(at: url)
     }
@@ -3011,7 +3027,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let existing = paths.filter { FileManager.default.fileExists(atPath: $0) }
         if existing != paths { UserDefaults.standard.set(existing, forKey: key) }
         guard !existing.isEmpty else {
-            let empty = NSMenuItem(title: "没有最近文稿", action: nil, keyEquivalent: "")
+            let empty = NSMenuItem(title: ui("没有最近文稿", "No Recent Documents"), action: nil, keyEquivalent: "")
             empty.isEnabled = false
             recentMenu.addItem(empty)
             return
@@ -3751,7 +3767,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     @objc private func checkForExternalChanges() {
         guard let url = documentURL else { return }
-        let action = externalChangeAction(last: lastKnownFileSignature, current: fileSignature(for: url), hasUnsavedChanges: isDirty)
+        let signature = fileSignature(for: url)
+        let action = externalChangeAction(last: lastKnownFileSignature, current: signature, hasUnsavedChanges: isDirty)
         switch action {
         case .none: break
         case .reload:
@@ -3759,9 +3776,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             statusLabel.stringValue = "已重新载入外部修改"
         case .conflict:
             hasExternalConflict = true
+            // Record the observed version before presenting the warning. This
+            // avoids repeatedly presenting the same conflict every monitor
+            // interval while preserving the local session for Save As.
+            lastKnownFileSignature = signature
             persistActiveLedgerSession()
             autosaveWorkItem?.cancel()
             statusLabel.stringValue = "检测到外部修改：自动保存已暂停，请重新载入或另存为"
+            presentError(ui("检测到外部修改，自动保存已暂停。请重新载入，或使用“另存为”保留当前修改。", "An external change was detected and autosave has paused. Reload the file or use Save As to preserve your current changes."))
         }
     }
 
@@ -4084,12 +4106,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
               let amounts = quickEntryAmounts(inlineAmountField.stringValue, allowsMultiple: allowsMultipleAmounts),
               let destination = inlineDestinationPicker.titleOfSelectedItem,
               let source = inlineSourcePicker.titleOfSelectedItem else {
-            statusLabel.stringValue = ui("请输入有效金额。", "Enter a valid amount.")
+            presentError(ui("请输入有效金额。", "Enter a valid amount."))
             window.makeFirstResponder(inlineAmountField)
             return
         }
         guard binder.kind != .transfer || destination != source else {
-            statusLabel.stringValue = ui("转入与转出账户不能相同。", "Transfer accounts must differ.")
+            presentError(ui("转入与转出账户不能相同。", "Transfer accounts must differ."))
             return
         }
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.calendar = Calendar(identifier: .gregorian); formatter.dateFormat = "yyyy-MM-dd"

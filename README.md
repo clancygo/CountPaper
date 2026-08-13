@@ -10,7 +10,7 @@ CountPaper 是一款为 macOS 设计的纯文本个人账本。
 
 记账软件通常让数据困在应用里。CountPaper 选择另一条路：文件是唯一真实数据，App 只是一个更适合记账的界面。
 
-你可以把账本放在 iCloud Drive、Dropbox、坚果云或任意本地文件夹；双击 `.countpaper` 文件会用 CountPaper 打开。需要阅读或修改原始文本时，CountPaper 也可以将同一个文件交给系统默认的文本编辑器，或你在设置中选择的 App。外部保存后，CountPaper 会重新读取文件。
+你可以把账本放在 iCloud Drive、Dropbox、坚果云或任意本地文件夹；将 CountPaper 设为默认打开 App 后，双击 `.countpaper` 文件即可直接进入账本。需要阅读或修改原始文本时，CountPaper 也可以将同一个文件交给系统默认的文本编辑器，或你在设置中选择的 App。外部保存后，CountPaper 会重新读取文件。
 
 ## 核心体验
 

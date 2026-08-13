@@ -71,6 +71,11 @@ struct LedgerParserTests {
         ]
         expect(dirtyLedgerSessionIndexes(backgroundDirtySessions) == [1], "退出检查必须识别非当前标签中的未保存更改")
         expect(dirtyLedgerSessionIndexes([LedgerSession(url: nil, text: "clean")]).isEmpty, "所有标签干净时不应触发退出保存提示")
+        let unchangedSignature = LedgerFileSignature(modificationDate: Date(timeIntervalSince1970: 1), size: 10)
+        let changedSignature = LedgerFileSignature(modificationDate: Date(timeIntervalSince1970: 2), size: 20)
+        expect(externalChangeAction(last: unchangedSignature, current: unchangedSignature, hasUnsavedChanges: false) == .none, "文件签名不变时不应触发外部变更")
+        expect(externalChangeAction(last: unchangedSignature, current: changedSignature, hasUnsavedChanges: false) == .reload, "无本地修改时应重新载入外部变更")
+        expect(externalChangeAction(last: unchangedSignature, current: changedSignature, hasUnsavedChanges: true) == .conflict, "有本地修改时外部变更必须进入冲突状态")
         let existingDateSource = "# 2026-08-11\n- 原交易\n  - 费用:餐饮  1.00\n  - 资产:现金  -1.00\n"
         let sameDateInsertion = ledgerTransactionInsertion(in: existingDateSource, date: "2026-08-11", transactionBlocks: ["- 新交易\n  - 费用:餐饮  2.00\n  - 资产:现金  -2.00"])
         let sameDateResult = NSMutableString(string: existingDateSource)
