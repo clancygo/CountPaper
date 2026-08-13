@@ -621,16 +621,16 @@ func signedLedgerAmount(_ value: Decimal) -> String {
     value > .zero ? "+\(LedgerParser.format(value))" : LedgerParser.format(value)
 }
 
-func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], english: Bool = false) -> String {
+func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], english: Bool = false, newestFirst: Bool = false) -> String {
     let tracked = accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }.sorted()
     guard !entries.isEmpty else { return english ? "No transactions" : "尚无交易" }
     guard !tracked.isEmpty else { return english ? "No asset or liability accounts" : "尚未声明资产或负债账户" }
-    let ordered = chronologicallyOrderedTransactions(entries)
+    let chronological = chronologicallyOrderedTransactions(entries)
     var balances: [String: Decimal] = [:]
     balances.reserveCapacity(tracked.count)
-    var chunks: [String] = []
-    chunks.reserveCapacity(ordered.count)
-    for entry in ordered {
+    var rendered: [(entry: LedgerTransaction, line: String)] = []
+    rendered.reserveCapacity(chronological.count)
+    for entry in chronological {
         var trackedChanges: [String: Decimal] = [:]
         for posting in entry.postings {
             if isLedgerAccount(posting.account, .asset) || isLedgerAccount(posting.account, .liability) {
@@ -650,10 +650,11 @@ func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], en
             return "\(ledgerAccountDisplayName(account)) \(LedgerParser.format(balance)) (\(signedLedgerAmount(change)))"
         }
         let kind = info.kindTitle(english: english)
-        let line = "\(kind)  \(LedgerParser.format(info.amount))  ·  \(balanceItems.joined(separator: "   ·   "))"
-        chunks.append("\(heading)\n    \(line)")
+        let line = "\(heading)     \(kind) \(LedgerParser.format(info.amount))  ·  \(balanceItems.joined(separator: "   ·   "))"
+        rendered.append((entry, line))
     }
-    return chunks.joined(separator: "\n\n")
+    if newestFirst { rendered.reverse() }
+    return rendered.map(\.line).joined(separator: "\n")
 }
 
 func transactionMetadata(fromComment comment: String) -> (payee: String?, tags: [String]) {
@@ -1145,6 +1146,14 @@ func renderedReportBlockIndex(at offset: Int, in renderedText: String) -> Int? {
     guard offset >= 0, offset <= source.length else { return nil }
     let prefix = source.substring(to: offset)
     return prefix.components(separatedBy: "\n\n").count - 1
+}
+
+/// The compact reconciliation list uses one physical line per transaction.
+func reconciliationLineIndex(at offset: Int, in renderedText: String) -> Int? {
+    let source = renderedText as NSString
+    guard offset >= 0, offset <= source.length else { return nil }
+    let prefix = source.substring(to: offset)
+    return prefix.components(separatedBy: "\n").count - 1
 }
 
 /// Resolves an account-tree line to a precise journal account query.  The tree
@@ -2343,6 +2352,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private weak var journalFilterContainer: NSStackView?
     private weak var reportFilterContainer: NSStackView?
     private weak var accountActionContainer: NSStackView?
+    private weak var reconciliationOrderContainer: NSStackView?
+    private let reconciliationOrderControl = NSSegmentedControl(labels: ["" , ""], trackingMode: .selectOne, target: nil, action: nil)
+    private var reconciliationNewestFirst = true
     private weak var dashboardContainer: NSView?
     private weak var inspectorContainer: NSView?
     private var inspectorCompactWidthConstraint: NSLayoutConstraint?
@@ -2968,6 +2980,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         journalFilters.addArrangedSubview(NSView())
         inspectorHeader.addArrangedSubview(journalFilters)
         journalFilterContainer = journalFilters
+        let reconciliationControls = NSStackView()
+        reconciliationControls.orientation = .horizontal
+        reconciliationControls.alignment = .centerY
+        reconciliationControls.spacing = 8
+        reconciliationControls.isHidden = true
+        reconciliationOrderControl.setLabel(ui("最新在前", "Newest First"), forSegment: 0)
+        reconciliationOrderControl.setLabel(ui("最早在前", "Oldest First"), forSegment: 1)
+        reconciliationOrderControl.selectedSegment = 0
+        reconciliationOrderControl.target = self
+        reconciliationOrderControl.action = #selector(changeReconciliationOrder(_:))
+        reconciliationOrderControl.selectedSegmentBezelColor = CountPaperTheme.blue
+        reconciliationOrderControl.setAccessibilityLabel(ui("对账排序", "Reconciliation order"))
+        reconciliationControls.addArrangedSubview(reconciliationOrderControl)
+        reconciliationControls.addArrangedSubview(NSView())
+        inspectorHeader.addArrangedSubview(reconciliationControls)
+        reconciliationOrderContainer = reconciliationControls
         let reportFilters = NSStackView()
         reportFilters.orientation = .horizontal
         reportFilters.alignment = .centerY
@@ -3038,6 +3066,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             inspectorHeader.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             inspectorTitleLabel.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             journalFilters.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
+            reconciliationControls.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             reportFilters.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             accountActions.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             reportChartView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
@@ -3418,6 +3447,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     @objc private func changeReportKind(_ sender: NSSegmentedControl) {
         selectedReportKind = PersonalReportKind.allCases[max(0, sender.selectedSegment)]
+        apply(report: latestReport)
+    }
+
+    @objc private func changeReconciliationOrder(_ sender: NSSegmentedControl) {
+        reconciliationNewestFirst = sender.selectedSegment == 0
         apply(report: latestReport)
     }
 
@@ -4828,7 +4862,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private func openJournalEntry(atReportOffset offset: Int) {
-        guard let block = renderedReportBlockIndex(at: offset, in: reportView.string),
+        let block = sidePanelMode == .reconciliation
+            ? reconciliationLineIndex(at: offset, in: reportView.string)
+            : renderedReportBlockIndex(at: offset, in: reportView.string)
+        guard let block,
               reportNavigationLines.indices.contains(block) else { return }
         let line = reportNavigationLines[block]
         guard
@@ -4897,6 +4934,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         journalFilterContainer?.isHidden = sidePanelMode != .journal
         reportFilterContainer?.isHidden = sidePanelMode != .reports
         accountActionContainer?.isHidden = sidePanelMode != .accounts
+        reconciliationOrderContainer?.isHidden = sidePanelMode != .reconciliation
         inspectorTitleLabel.stringValue = switch sidePanelMode {
         case .overview: ui("概览", "Overview")
         case .journal: ui("日记账", "Journal")
@@ -4914,8 +4952,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             output = journalText(for: report)
         case .reconciliation:
             let hasTrackedAccounts = report.accounts.contains { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }
-            reportNavigationLines = hasTrackedAccounts ? chronologicallyOrderedTransactions(report.journal).map(\.startLine) : []
-            output = reconciliationModeText(entries: report.journal, accounts: report.accounts, english: appLanguage == .english)
+            var navigation = chronologicallyOrderedTransactions(report.journal).map(\.startLine)
+            if reconciliationNewestFirst { navigation.reverse() }
+            reportNavigationLines = hasTrackedAccounts ? navigation : []
+            reconciliationOrderControl.selectedSegment = reconciliationNewestFirst ? 0 : 1
+            output = reconciliationModeText(entries: report.journal, accounts: report.accounts, english: appLanguage == .english, newestFirst: reconciliationNewestFirst)
         case .accounts:
             reportNavigationLines = []
             output = accountTreeText(for: report)
