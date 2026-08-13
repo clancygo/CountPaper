@@ -854,6 +854,24 @@ func dirtyLedgerSessionIndexes(_ sessions: [LedgerSession]) -> [Int] {
     sessions.indices.filter { sessions[$0].isDirty }
 }
 
+/// Finder can deliver the same Apple Event more than once when a document is
+/// double-clicked repeatedly while the app is launching. Normalize aliases and
+/// preserve request order so one document creates exactly one ledger tab.
+func uniqueLedgerDocumentURLs(_ urls: [URL]) -> [URL] {
+    var seen = Set<String>()
+    var output: [URL] = []
+    for url in urls where url.isFileURL && url.pathExtension.lowercased() == "countpaper" {
+        let normalized = url.standardizedFileURL.resolvingSymlinksInPath()
+        let key = normalized.path.precomposedStringWithCanonicalMapping
+        if seen.insert(key).inserted { output.append(normalized) }
+    }
+    return output
+}
+
+func shouldReplacePlaceholderLedger(_ sessions: [LedgerSession]) -> Bool {
+    sessions.count == 1 && sessions[0].url == nil && !sessions[0].isDirty
+}
+
 enum ExternalChangeAction: Equatable { case none, reload, conflict }
 
 func externalChangeAction(last: LedgerFileSignature?, current: LedgerFileSignature?, hasUnsavedChanges: Bool) -> ExternalChangeAction {
@@ -1864,6 +1882,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private var hasInitializedReportPeriod = false
     private var hasCompletedLaunch = false
     private var pendingOpenURLs: [URL] = []
+    private var documentOpenWorkItem: DispatchWorkItem?
     private var lastKnownFileSignature: LedgerFileSignature?
     private var hasExternalConflict = false
     private var fileMonitorTimer: Timer?
@@ -1909,12 +1928,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         buildMenu()
         buildWindow()
         buildSourceWindow()
-        if pendingOpenURLs.isEmpty {
+        let launchURLs = uniqueLedgerDocumentURLs(pendingOpenURLs)
+        pendingOpenURLs = []
+        if launchURLs.isEmpty {
             loadUntitledSample()
         } else {
-            let urls = pendingOpenURLs
-            pendingOpenURLs = []
-            urls.forEach(loadDocument(at:))
+            launchURLs.forEach(loadDocument(at:))
         }
         fileMonitorTimer = Timer.scheduledTimer(timeInterval: 1.5, target: self, selector: #selector(checkForExternalChanges), userInfo: nil, repeats: true)
         window.makeKeyAndOrderFront(nil)
@@ -1949,25 +1968,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     func applicationWillTerminate(_ notification: Notification) { fileMonitorTimer?.invalidate() }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        let ledgerURLs = urls.filter { $0.isFileURL && $0.pathExtension.lowercased() == "countpaper" }
-        // Finder may deliver an open event while restoring a shelved app. This
-        // delegate is already called on the main thread: do the work here.
-        // Posting another main-queue block used to retain a stale window path
-        // after Command-W, which is the crash reported by users reopening files.
+        enqueueDocumentOpenRequests(urls)
+    }
+
+    /// Compatibility path for Launch Services versions which still dispatch
+    /// the legacy filename selector for a registered document type.
+    func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        enqueueDocumentOpenRequests([URL(fileURLWithPath: filename)])
+        return true
+    }
+
+    func application(_ sender: NSApplication, openFiles filenames: [String]) {
+        enqueueDocumentOpenRequests(filenames.map(URL.init(fileURLWithPath:)))
+        sender.reply(toOpenOrPrint: .success)
+    }
+
+    private func enqueueDocumentOpenRequests(_ urls: [URL]) {
+        let ledgerURLs = uniqueLedgerDocumentURLs(urls)
         guard !ledgerURLs.isEmpty else {
             revealMainWindow()
             return
         }
-        guard window != nil else {
-            pendingOpenURLs.append(contentsOf: ledgerURLs)
+        pendingOpenURLs = uniqueLedgerDocumentURLs(pendingOpenURLs + ledgerURLs)
+        guard hasCompletedLaunch, window != nil else {
             return
         }
-        ledgerURLs.forEach(loadDocument(at:))
+        // Coalesce the burst of Apple Events produced by repeated Finder
+        // double-clicks. Existing open tabs provide a second idempotency guard.
+        documentOpenWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in self?.drainDocumentOpenRequests() }
+        documentOpenWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: workItem)
+    }
+
+    private func drainDocumentOpenRequests() {
+        documentOpenWorkItem = nil
+        guard hasCompletedLaunch, window != nil else { return }
+        let urls = uniqueLedgerDocumentURLs(pendingOpenURLs)
+        pendingOpenURLs = []
+        urls.forEach(loadDocument(at:))
         revealMainWindow()
     }
 
     private func revealMainWindow() {
-        window?.makeKeyAndOrderFront(nil)
+        guard let window else { return }
+        NSApp.unhide(nil)
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
     }
 
@@ -3107,7 +3155,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
         do {
             let text = try String(contentsOf: url, encoding: .utf8)
-            persistActiveLedgerSession()
+            if shouldReplacePlaceholderLedger(ledgerSessions) {
+                autosaveWorkItem?.cancel()
+                ledgerSessions.removeAll()
+            } else {
+                persistActiveLedgerSession()
+            }
             ledgerSessions.append(LedgerSession(url: url, text: text, signature: fileSignature(for: url)))
             activeLedgerIndex = ledgerSessions.count - 1
             rememberRecentDocument(url)

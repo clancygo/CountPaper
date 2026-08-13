@@ -71,6 +71,17 @@ struct LedgerParserTests {
         ]
         expect(dirtyLedgerSessionIndexes(backgroundDirtySessions) == [1], "退出检查必须识别非当前标签中的未保存更改")
         expect(dirtyLedgerSessionIndexes([LedgerSession(url: nil, text: "clean")]).isEmpty, "所有标签干净时不应触发退出保存提示")
+        let repeatedOpenURLs = [
+            URL(fileURLWithPath: "/tmp/ledger.countpaper"),
+            URL(fileURLWithPath: "/tmp/./ledger.countpaper"),
+            URL(fileURLWithPath: "/tmp/notes.txt"),
+            URL(fileURLWithPath: "/tmp/second.COUNTPAPER")
+        ]
+        let uniqueOpenURLs = uniqueLedgerDocumentURLs(repeatedOpenURLs)
+        expect(uniqueOpenURLs.map(\.lastPathComponent) == ["ledger.countpaper", "second.COUNTPAPER"], "Finder 重复打开事件应去重并忽略非账本文件")
+        expect(shouldReplacePlaceholderLedger([LedgerSession(url: nil, text: "template")]), "冷启动文件应替换未编辑的占位账本")
+        expect(!shouldReplacePlaceholderLedger([LedgerSession(url: nil, text: "edited", isDirty: true)]), "Finder 打开文件不得覆盖用户尚未保存的修改")
+        expect(!shouldReplacePlaceholderLedger([LedgerSession(url: URL(fileURLWithPath: "/tmp/real.countpaper"), text: "saved")]), "真实文件标签不得被后续打开请求替换")
         let unchangedSignature = LedgerFileSignature(modificationDate: Date(timeIntervalSince1970: 1), size: 10)
         let changedSignature = LedgerFileSignature(modificationDate: Date(timeIntervalSince1970: 2), size: 20)
         expect(externalChangeAction(last: unchangedSignature, current: unchangedSignature, hasUnsavedChanges: false) == .none, "文件签名不变时不应触发外部变更")
