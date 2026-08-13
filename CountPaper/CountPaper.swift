@@ -10,33 +10,33 @@ enum CountPaperTheme {
     }
 
     static let canvas = adaptive(
-        light: NSColor(calibratedRed: 0.965, green: 0.957, blue: 0.941, alpha: 1),
+        light: NSColor(calibratedWhite: 1.0, alpha: 1),
         dark: NSColor(calibratedRed: 0.090, green: 0.086, blue: 0.080, alpha: 1)
     )
     static let surface = adaptive(
-        light: NSColor(calibratedRed: 0.992, green: 0.988, blue: 0.976, alpha: 1),
+        light: NSColor(calibratedWhite: 1.0, alpha: 1),
         dark: NSColor(calibratedRed: 0.135, green: 0.129, blue: 0.120, alpha: 1)
     )
     static let raisedSurface = adaptive(
-        light: NSColor(calibratedWhite: 1.0, alpha: 0.96),
+        light: NSColor(calibratedWhite: 1.0, alpha: 1),
         dark: NSColor(calibratedRed: 0.165, green: 0.157, blue: 0.145, alpha: 1)
     )
     static let softSurface = adaptive(
-        light: NSColor(calibratedRed: 0.938, green: 0.925, blue: 0.900, alpha: 1),
+        light: NSColor(calibratedRed: 0.967, green: 0.973, blue: 0.980, alpha: 1),
         dark: NSColor(calibratedRed: 0.190, green: 0.181, blue: 0.166, alpha: 1)
     )
     static let border = adaptive(
-        light: NSColor(calibratedRed: 0.790, green: 0.766, blue: 0.720, alpha: 0.58),
+        light: NSColor(calibratedRed: 0.855, green: 0.878, blue: 0.902, alpha: 0.82),
         dark: NSColor(calibratedWhite: 0.36, alpha: 0.52)
     )
-    static let ink = adaptive(light: NSColor(calibratedWhite: 0.12, alpha: 1), dark: NSColor(calibratedWhite: 0.93, alpha: 1))
-    static let secondaryInk = adaptive(light: NSColor(calibratedWhite: 0.38, alpha: 1), dark: NSColor(calibratedWhite: 0.66, alpha: 1))
+    static let ink = adaptive(light: NSColor(calibratedRed: 0.105, green: 0.122, blue: 0.145, alpha: 1), dark: NSColor(calibratedWhite: 0.93, alpha: 1))
+    static let secondaryInk = adaptive(light: NSColor(calibratedRed: 0.365, green: 0.408, blue: 0.455, alpha: 1), dark: NSColor(calibratedWhite: 0.66, alpha: 1))
     static let blue = adaptive(
-        light: NSColor(calibratedRed: 0.20, green: 0.39, blue: 0.51, alpha: 1),
+        light: NSColor(calibratedRed: 0.13, green: 0.38, blue: 0.70, alpha: 1),
         dark: NSColor(calibratedRed: 0.46, green: 0.68, blue: 0.80, alpha: 1)
     )
     static let blueSoft = adaptive(
-        light: NSColor(calibratedRed: 0.77, green: 0.85, blue: 0.89, alpha: 0.72),
+        light: NSColor(calibratedRed: 0.875, green: 0.925, blue: 0.982, alpha: 1),
         dark: NSColor(calibratedRed: 0.20, green: 0.31, blue: 0.37, alpha: 0.82)
     )
     static let red = adaptive(light: NSColor(calibratedRed: 0.72, green: 0.31, blue: 0.27, alpha: 1), dark: NSColor(calibratedRed: 0.90, green: 0.48, blue: 0.43, alpha: 1))
@@ -2777,13 +2777,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         shell.spacing = 0
         shell.translatesAutoresizingMaskIntoConstraints = false
 
-        let sidebar = NSVisualEffectView()
-        sidebar.material = .sidebar
-        sidebar.blendingMode = .withinWindow
-        sidebar.state = .active
-        sidebar.wantsLayer = true
-        sidebar.layer?.borderWidth = 0.5
-        sidebar.layer?.borderColor = CountPaperTheme.border.cgColor
+        // A deliberate near-white surface reads as paper, rather than the
+        // coloured system sidebar material that was tinting the whole app.
+        let sidebar = CountPaperSurfaceView(fill: CountPaperTheme.softSurface, stroke: CountPaperTheme.border)
         sidebar.translatesAutoresizingMaskIntoConstraints = false
         sidebar.widthAnchor.constraint(equalToConstant: 184).isActive = true
         let sidebarStack = NSStackView()
