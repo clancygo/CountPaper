@@ -2627,13 +2627,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let stack = NSStackView(frame: container.bounds)
         stack.orientation = .vertical
         stack.alignment = .width; stack.spacing = 18
-        stack.edgeInsets = NSEdgeInsets(top: 32, left: 28, bottom: 30, right: 28)
+        stack.edgeInsets = NSEdgeInsets(top: 36, left: 28, bottom: 32, right: 28)
         stack.translatesAutoresizingMaskIntoConstraints = false
         // Attach the stack before activating constraints from its arranged
         // subviews to `container`; AppKit requires a common ancestor.
         container.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.widthAnchor.constraint(equalToConstant: 700),
+            stack.widthAnchor.constraint(equalToConstant: 780),
             stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             stack.topAnchor.constraint(equalTo: container.topAnchor),
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor)
@@ -2642,18 +2642,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         dashboardTitleLabel.font = .systemFont(ofSize: 24, weight: .semibold)
         dashboardTitleLabel.textColor = CountPaperTheme.ink
         dashboardTitleLabel.alignment = .left
-        dashboardTitleLabel.widthAnchor.constraint(equalToConstant: 644).isActive = true
+        dashboardTitleLabel.widthAnchor.constraint(equalToConstant: 724).isActive = true
         stack.addArrangedSubview(dashboardTitleLabel)
         let summaryCard = CountPaperSurfaceView(fill: CountPaperTheme.surface, stroke: CountPaperTheme.border, radius: 16, shadow: true)
-        summaryCard.widthAnchor.constraint(equalToConstant: 644).isActive = true
-        summaryCard.heightAnchor.constraint(equalToConstant: 92).isActive = true
+        summaryCard.widthAnchor.constraint(equalToConstant: 724).isActive = true
+        summaryCard.heightAnchor.constraint(equalToConstant: 98).isActive = true
         let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.alignment = .centerY; statRow.spacing = 0
         statRow.translatesAutoresizingMaskIntoConstraints = false
         let metricLabels = [dashboardIncomeLabel, dashboardExpenseLabel, dashboardNetLabel]
         for (index, label) in metricLabels.enumerated() {
             label.font = .systemFont(ofSize: 14, weight: .medium)
             label.alignment = .center
-            label.widthAnchor.constraint(equalToConstant: 214).isActive = true
+            label.widthAnchor.constraint(equalToConstant: 240).isActive = true
             label.heightAnchor.constraint(equalToConstant: 70).isActive = true
             statRow.addArrangedSubview(label)
             if index < metricLabels.count - 1 {
@@ -2671,19 +2671,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         stack.addArrangedSubview(summaryCard)
 
         let entryCard = CountPaperSurfaceView(fill: CountPaperTheme.raisedSurface, stroke: CountPaperTheme.border, radius: 16, shadow: true)
-        entryCard.widthAnchor.constraint(equalToConstant: 644).isActive = true
-        let entry = NSStackView(); entry.orientation = .vertical; entry.alignment = .leading; entry.spacing = 9
-        entry.edgeInsets = NSEdgeInsets(top: 15, left: 18, bottom: 15, right: 18); entry.translatesAutoresizingMaskIntoConstraints = false
+        entryCard.widthAnchor.constraint(equalToConstant: 724).isActive = true
+        let entry = NSStackView(); entry.orientation = .vertical; entry.alignment = .leading; entry.spacing = 10
+        entry.edgeInsets = NSEdgeInsets(top: 17, left: 20, bottom: 17, right: 20); entry.translatesAutoresizingMaskIntoConstraints = false
         inlineEntryTitleLabel.stringValue = ui("记一笔", "New Entry")
         inlineEntryTitleLabel.font = .systemFont(ofSize: 16, weight: .semibold); inlineEntryTitleLabel.textColor = CountPaperTheme.ink
         let entryHeader = NSStackView(); entryHeader.orientation = .horizontal; entryHeader.alignment = .centerY
-        entryHeader.widthAnchor.constraint(equalToConstant: 608).isActive = true
+        entryHeader.widthAnchor.constraint(equalToConstant: 684).isActive = true
         entryHeader.addArrangedSubview(inlineEntryTitleLabel); entryHeader.addArrangedSubview(NSView())
         inlineKindControl.selectedSegment = 0; inlineKindControl.selectedSegmentBezelColor = CountPaperTheme.blue; inlineKindControl.setAccessibilityLabel(ui("交易类型", "Transaction type")); inlineKindControl.widthAnchor.constraint(equalToConstant: 148).isActive = true
         entryHeader.addArrangedSubview(inlineKindControl); entry.addArrangedSubview(entryHeader)
         let firstRow = NSStackView(); firstRow.orientation = .horizontal; firstRow.spacing = 8
-        inlineAmountField.placeholderString = ui("金额，如 32 57", "Amount, e.g. 32 57"); inlineAmountField.setAccessibilityLabel(ui("金额，可输入多个数字", "Amount; multiple values supported")); inlineAmountField.widthAnchor.constraint(equalToConstant: 148).isActive = true
-        inlineSummaryField.placeholderString = ui("摘要（可选）", "Description (optional)"); inlineSummaryField.widthAnchor.constraint(equalToConstant: 200).isActive = true
+        inlineAmountField.placeholderString = ui("金额，如 32 57", "Amount, e.g. 32 57"); inlineAmountField.setAccessibilityLabel(ui("金额，可输入多个数字", "Amount; multiple values supported")); inlineAmountField.widthAnchor.constraint(equalToConstant: 164).isActive = true
+        inlineSummaryField.placeholderString = ui("摘要（可选）", "Description (optional)"); inlineSummaryField.widthAnchor.constraint(equalToConstant: 224).isActive = true
         configureInlineDatePicker()
         configureInlineDateShortcutButtons()
         inlineDateButton.target = self; inlineDateButton.action = #selector(showInlineDateCalendar(_:))
@@ -2699,7 +2699,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         func accountField(label: NSTextField, picker: NSPopUpButton) -> NSStackView {
             let group = NSStackView(); group.orientation = .vertical; group.alignment = .leading; group.spacing = 3
             label.font = .systemFont(ofSize: 11, weight: .medium); label.textColor = CountPaperTheme.secondaryInk
-            picker.widthAnchor.constraint(equalToConstant: 298).isActive = true
+            picker.widthAnchor.constraint(equalToConstant: 336).isActive = true
             group.addArrangedSubview(label); group.addArrangedSubview(picker)
             return group
         }
@@ -2707,8 +2707,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         accountRow.addArrangedSubview(accountField(label: inlineSourceLabel, picker: inlineSourcePicker))
         entry.addArrangedSubview(accountRow)
         let actionRow = NSStackView(); actionRow.orientation = .horizontal; actionRow.alignment = .centerY; actionRow.spacing = 8
-        actionRow.widthAnchor.constraint(equalToConstant: 608).isActive = true
-        inlineSuggestionPicker.widthAnchor.constraint(equalToConstant: 238).isActive = true; inlineSuggestionPicker.setAccessibilityLabel(ui("最近交易模板", "Recent transaction templates"))
+        actionRow.widthAnchor.constraint(equalToConstant: 684).isActive = true
+        inlineSuggestionPicker.widthAnchor.constraint(equalToConstant: 264).isActive = true; inlineSuggestionPicker.setAccessibilityLabel(ui("最近交易模板", "Recent transaction templates"))
         inlineCancelEditButton.title = ui("取消修改", "Cancel Edit"); inlineCancelEditButton.target = self; inlineCancelEditButton.action = #selector(cancelInlineTransactionEdit(_:)); inlineCancelEditButton.bezelStyle = .inline; inlineCancelEditButton.isHidden = true
         inlineSaveButton.title = ui("记入账本", "Record"); inlineSaveButton.target = self; inlineSaveButton.action = #selector(recordInlineTransaction(_:))
         stylePrimaryButton(inlineSaveButton)
@@ -2721,13 +2721,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             entry.leadingAnchor.constraint(equalTo: entryCard.leadingAnchor), entry.trailingAnchor.constraint(equalTo: entryCard.trailingAnchor),
             entry.topAnchor.constraint(equalTo: entryCard.topAnchor), entry.bottomAnchor.constraint(equalTo: entryCard.bottomAnchor)
         ])
-        entryCard.heightAnchor.constraint(equalToConstant: 184).isActive = true
+        entryCard.heightAnchor.constraint(equalToConstant: 192).isActive = true
         stack.addArrangedSubview(entryCard)
 
         let recentTitle = NSTextField(labelWithString: ui("最近交易", "Recent Transactions"))
         recentTitle.font = .systemFont(ofSize: 15, weight: .semibold); recentTitle.textColor = CountPaperTheme.ink
         let recentHeader = NSStackView(); recentHeader.orientation = .horizontal; recentHeader.alignment = .centerY
-        recentHeader.widthAnchor.constraint(equalToConstant: 644).isActive = true
+        recentHeader.widthAnchor.constraint(equalToConstant: 724).isActive = true
         recentHeader.addArrangedSubview(recentTitle)
         dashboardMoreButton.title = ui("更多…", "More…"); dashboardMoreButton.target = self; dashboardMoreButton.action = #selector(showTransactionBrowser(_:)); styleDashboardActionButton(dashboardMoreButton, symbol: "list.bullet.rectangle", tint: CountPaperTheme.blue, filled: true); dashboardMoreButton.widthAnchor.constraint(equalToConstant: 78).isActive = true
         dashboardEditButton.title = ui("修改", "Edit"); dashboardEditButton.target = self; dashboardEditButton.action = #selector(editSelectedDashboardTransaction(_:)); styleDashboardActionButton(dashboardEditButton, symbol: "pencil", tint: CountPaperTheme.blue); dashboardEditButton.widthAnchor.constraint(equalToConstant: 62).isActive = true; dashboardEditButton.isEnabled = false
@@ -2745,7 +2745,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         stack.addArrangedSubview(recentHeader)
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.borderType = .noBorder
         scroll.wantsLayer = true; scroll.layer?.cornerRadius = 14; scroll.layer?.backgroundColor = CountPaperTheme.surface.cgColor; scroll.layer?.borderWidth = 0.6; scroll.layer?.borderColor = CountPaperTheme.border.cgColor
-        scroll.widthAnchor.constraint(equalToConstant: 644).isActive = true
+        scroll.widthAnchor.constraint(equalToConstant: 724).isActive = true
         dashboardRecentView.isEditable = false; dashboardRecentView.isSelectable = true
         dashboardRecentView.textColor = CountPaperTheme.ink; dashboardRecentView.backgroundColor = .clear
         dashboardRecentView.font = .systemFont(ofSize: 13, weight: .regular)
@@ -2754,7 +2754,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         dashboardRecentView.setAccessibilityLabel(ui("最近交易", "Recent transactions"))
         dashboardRecentView.onRowClick = { [weak self] row in self?.selectDashboardTransaction(at: row) }
         scroll.documentView = dashboardRecentView
-        scroll.heightAnchor.constraint(equalToConstant: 142).isActive = true
+        scroll.heightAnchor.constraint(equalToConstant: 156).isActive = true
         stack.addArrangedSubview(scroll)
         let bottomSpacer = NSView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -2767,7 +2767,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         window.title = "CountPaper"
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
-        window.minSize = NSSize(width: 920, height: 600)
+        window.minSize = NSSize(width: 1060, height: 640)
         window.center(); window.delegate = self
         (window as? CountPaperWindow)?.onCommandW = { [weak self] in self?.hideMainWindow(nil) }
 
@@ -2781,18 +2781,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         // coloured system sidebar material that was tinting the whole app.
         let sidebar = CountPaperSurfaceView(fill: CountPaperTheme.softSurface, stroke: CountPaperTheme.border)
         sidebar.translatesAutoresizingMaskIntoConstraints = false
-        sidebar.widthAnchor.constraint(equalToConstant: 184).isActive = true
+        sidebar.widthAnchor.constraint(equalToConstant: 208).isActive = true
         let sidebarStack = NSStackView()
         sidebarStack.orientation = .vertical
         sidebarStack.alignment = .leading
-        sidebarStack.spacing = 6
-        sidebarStack.edgeInsets = NSEdgeInsets(top: 48, left: 12, bottom: 14, right: 12)
+        sidebarStack.spacing = 5
+        sidebarStack.edgeInsets = NSEdgeInsets(top: 48, left: 16, bottom: 16, right: 16)
         sidebarStack.translatesAutoresizingMaskIntoConstraints = false
         let brand = NSTextField(labelWithString: "CountPaper")
         brand.font = .systemFont(ofSize: 20, weight: .semibold)
         brand.textColor = CountPaperTheme.ink
         sidebarStack.addArrangedSubview(brand)
-        sidebarStack.setCustomSpacing(18, after: brand)
+        let subtitle = NSTextField(labelWithString: ui("纯文本个人账本", "Plain-text personal ledger"))
+        subtitle.font = .systemFont(ofSize: 11, weight: .medium)
+        subtitle.textColor = CountPaperTheme.secondaryInk
+        sidebarStack.addArrangedSubview(subtitle)
+        sidebarStack.setCustomSpacing(22, after: subtitle)
+        let navigationLabel = NSTextField(labelWithString: ui("浏览", "BROWSE"))
+        navigationLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        navigationLabel.textColor = CountPaperTheme.secondaryInk
+        sidebarStack.addArrangedSubview(navigationLabel)
+        sidebarStack.setCustomSpacing(7, after: navigationLabel)
         sidebarButtons = [
             makeSidebarButton(title: ui("概览", "Overview"), symbol: "rectangle.grid.2x2", tag: 0),
             makeSidebarButton(title: ui("日记账", "Journal"), symbol: "list.bullet", tag: 1),
@@ -2802,8 +2811,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ]
         sidebarButtons.forEach { button in
             sidebarStack.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: 160).isActive = true
-            button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+            button.widthAnchor.constraint(equalToConstant: 176).isActive = true
+            button.heightAnchor.constraint(equalToConstant: 34).isActive = true
         }
         let sidebarSpacer = NSView()
         sidebarSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
@@ -2832,13 +2841,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         bar.orientation = .horizontal
         bar.alignment = .centerY
         bar.spacing = 6
-        bar.edgeInsets = NSEdgeInsets(top: 6, left: 16, bottom: 6, right: 14)
+        bar.edgeInsets = NSEdgeInsets(top: 8, left: 22, bottom: 7, right: 20)
         bar.wantsLayer = true
         bar.layer?.backgroundColor = CountPaperTheme.canvas.cgColor
         documentNameLabel.font = .systemFont(ofSize: 14, weight: .semibold)
         documentNameLabel.textColor = CountPaperTheme.ink
         documentNameLabel.lineBreakMode = .byTruncatingMiddle
         documentNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        bar.addArrangedSubview(documentNameLabel)
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         bar.addArrangedSubview(spacer)
@@ -2881,7 +2891,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         tabBar.orientation = .horizontal
         tabBar.alignment = .centerY
         tabBar.spacing = 6
-        tabBar.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 5, right: 12)
+        tabBar.edgeInsets = NSEdgeInsets(top: 5, left: 20, bottom: 7, right: 20)
         tabBar.wantsLayer = true
         tabBar.layer?.backgroundColor = CountPaperTheme.canvas.cgColor
         ledgerTabControl.trackingMode = .selectOne
@@ -3104,7 +3114,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         // NSStackView otherwise prefers the inspector's intrinsic width on
         // first launch. Pin the flexible workspace to the shell explicitly so
         // every page uses the window's full remaining width.
-        workspace.widthAnchor.constraint(equalTo: shell.widthAnchor, constant: -184).isActive = true
+        workspace.widthAnchor.constraint(equalTo: shell.widthAnchor, constant: -208).isActive = true
         root.addSubview(shell); window.contentView = root
         NSLayoutConstraint.activate([
             shell.leadingAnchor.constraint(equalTo: root.leadingAnchor), shell.trailingAnchor.constraint(equalTo: root.trailingAnchor),
