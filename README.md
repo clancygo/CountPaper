@@ -1,5 +1,7 @@
 # CountPaper
 
+[English](README.en.md) · 简体中文
+
 CountPaper 是一款为 macOS 设计的纯文本个人账本。
 
 它把账本还给文件：每一笔收入、支出和转账都保存在一个可读、可长期保存的 `.countpaper` 文本文件中。CountPaper 不建立私有账务数据库，不需要账户，也不接管你的同步服务。
