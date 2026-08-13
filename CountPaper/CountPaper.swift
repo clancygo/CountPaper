@@ -2794,11 +2794,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         sidebarStack.addArrangedSubview(brand)
         sidebarStack.setCustomSpacing(18, after: brand)
         sidebarButtons = [
-            makeSidebarButton(title: ui("概览", "Overview"), symbol: "chart.bar.xaxis", tag: 0),
-            makeSidebarButton(title: ui("日记账", "Journal"), symbol: "list.bullet", tag: 1),
-            makeSidebarButton(title: ui("对账", "Reconcile"), symbol: "checkmark.rectangle.stack", tag: 2),
-            makeSidebarButton(title: ui("账户", "Accounts"), symbol: "wallet.pass", tag: 3),
-            makeSidebarButton(title: ui("报表", "Reports"), symbol: "chart.pie", tag: 4)
+            makeSidebarButton(title: ui("概览", "Overview"), tag: 0),
+            makeSidebarButton(title: ui("日记账", "Journal"), tag: 1),
+            makeSidebarButton(title: ui("对账", "Reconcile"), tag: 2),
+            makeSidebarButton(title: ui("账户", "Accounts"), tag: 3),
+            makeSidebarButton(title: ui("报表", "Reports"), tag: 4)
         ]
         sidebarButtons.forEach { button in
             sidebarStack.addArrangedSubview(button)
@@ -3112,33 +3112,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ])
     }
 
-    private func makeSidebarButton(title: String, symbol: String, tag: Int) -> NSButton {
+    private func makeSidebarButton(title: String, tag: Int) -> NSButton {
         let button = NSButton(title: title, target: self, action: #selector(changeSidebarMode(_:)))
         button.tag = tag
-        button.identifier = NSUserInterfaceItemIdentifier(symbol)
         button.isBordered = false
         button.alignment = .left
         button.font = .systemFont(ofSize: 13.5, weight: .medium)
-        button.image = sidebarSymbolImage(named: symbol, description: title)
+        button.image = nil
         button.alternateImage = nil
-        button.imagePosition = .imageLeading
-        button.imageHugsTitle = true
-        button.imageScaling = .scaleProportionallyDown
+        button.imagePosition = .noImage
+        button.imageHugsTitle = false
         button.wantsLayer = true
         button.layer?.cornerRadius = 9
         button.setAccessibilityLabel(title)
         return button
-    }
-
-    /// SF Symbols such as chart.bar.xaxis have a multicolor default appearance.
-    /// Always request their monochrome form before placing them in navigation;
-    /// the button's tint is then the only source of icon colour.
-    private func sidebarSymbolImage(named symbol: String, description: String) -> NSImage? {
-        let base = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-        let monochrome = base.applying(NSImage.SymbolConfiguration.preferringMonochrome())
-        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)?.withSymbolConfiguration(monochrome)
-        image?.isTemplate = true
-        return image
     }
 
     private func stylePrimaryButton(_ button: NSButton) {
@@ -3175,9 +3162,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func updateSidebarSelection() {
         for button in sidebarButtons {
             let selected = button.tag == sidebarModeIndex
-            // Recreate a monochrome template on every update. This clears any
-            // cached multicolor rendering left by AppKit's symbol image cache.
-            button.image = sidebarSymbolImage(named: button.identifier?.rawValue ?? "circle", description: button.title)
+            // Navigation is intentionally text-only: it avoids SF Symbols'
+            // multicolor variants and gives every selection state one clear cue.
+            button.image = nil
             button.alternateImage = nil
             button.layer?.backgroundColor = selected ? CountPaperTheme.blueSoft.cgColor : NSColor.clear.cgColor
             button.contentTintColor = selected ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
