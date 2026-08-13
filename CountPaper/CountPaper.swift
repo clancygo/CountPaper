@@ -518,6 +518,14 @@ func chronologicallyOrderedTransactions(_ entries: [LedgerTransaction]) -> [Ledg
     }
 }
 
+func ledgerTransactionDateTime(_ entry: LedgerTransaction) -> String {
+    entry.time.map { "\(entry.date) \($0)" } ?? entry.date
+}
+
+func signedLedgerAmount(_ value: Decimal) -> String {
+    value > .zero ? "+\(LedgerParser.format(value))" : LedgerParser.format(value)
+}
+
 func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], english: Bool = false) -> String {
     let tracked = accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }.sorted()
     guard !entries.isEmpty else { return english ? "No transactions" : "尚无交易" }
@@ -528,12 +536,27 @@ func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], en
     var chunks: [String] = []
     chunks.reserveCapacity(ordered.count)
     for entry in ordered {
-        for posting in entry.postings where isLedgerAccount(posting.account, .asset) || isLedgerAccount(posting.account, .liability) {
-            balances[posting.account, default: .zero] += posting.amount
+        var trackedChanges: [String: Decimal] = [:]
+        for posting in entry.postings {
+            if isLedgerAccount(posting.account, .asset) || isLedgerAccount(posting.account, .liability) {
+                balances[posting.account, default: .zero] += posting.amount
+                trackedChanges[posting.account, default: .zero] += posting.amount
+            }
         }
-        let heading = "\(entry.date) \(entry.time ?? "--:--")  \(entry.summary)"
-        let rows = tracked.map { account in "    \(account)  \(LedgerParser.format(displayBalance(balances[account, default: .zero], account: account)))" }
-        chunks.append(([heading] + rows).joined(separator: "\n"))
+        let heading = "\(ledgerTransactionDateTime(entry))  \(entry.summary)"
+        let transactionRows = entry.postings.map { posting in
+            "    \(posting.account)  \(signedLedgerAmount(displayBalance(posting.amount, account: posting.account)))"
+        }
+        let balanceRows = tracked.map { account -> String in
+            let balance = LedgerParser.format(displayBalance(balances[account, default: .zero], account: account))
+            let change = displayBalance(trackedChanges[account, default: .zero], account: account)
+            guard change != .zero else { return "    \(account)  \(balance)" }
+            let changeText = english ? "change \(signedLedgerAmount(change))" : "本次 \(signedLedgerAmount(change))"
+            return "  ● \(account)  \(balance)    \(changeText)"
+        }
+        let changeTitle = english ? "Transaction change" : "本次变动"
+        let balanceTitle = english ? "Balance after transaction" : "交易后余额"
+        chunks.append(([heading, changeTitle] + transactionRows + [balanceTitle] + balanceRows).joined(separator: "\n"))
     }
     return chunks.joined(separator: "\n\n")
 }
@@ -1659,7 +1682,7 @@ final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTab
         guard filtered.indices.contains(row), let identifier = tableColumn?.identifier else { return nil }
         let entry = filtered[row]
         let value: String = switch identifier.rawValue {
-        case "date": "\(entry.date) \(entry.time ?? "--:--")"
+        case "date": ledgerTransactionDateTime(entry)
         case "detail": ledgerTransactionDetail(entry)
         case "account": entry.postings.map(\.account).joined(separator: "  ↔  ")
         case "tags": entry.tags.map { "#\($0)" }.joined(separator: " ")
@@ -4647,7 +4670,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
                 let detail = fullDetail.count > 19 ? String(fullDetail.prefix(18)) + "…" : fullDetail
                 let accountPair = entry.postings.prefix(2).map(\.account).joined(separator: " ↔ ")
                 let compactAccounts = accountPair.count > 24 ? String(accountPair.prefix(23)) + "…" : accountPair
-                return "\(entry.date) \(entry.time ?? "--:--")\t\(detail)\t\(compactAccounts)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
+                return "\(ledgerTransactionDateTime(entry))\t\(detail)\t\(compactAccounts)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
             }.joined(separator: "\n")
         applyDashboardRecentTypography()
     }
@@ -5028,7 +5051,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         var output = ""
         for entry in entries.reversed() {
             let flag = entry.flag.map { " \($0)" } ?? ""
-            output += "\(entry.date) \(entry.time ?? "--:--")\(flag)  \(entry.summary)\n"
+            output += "\(ledgerTransactionDateTime(entry))\(flag)  \(entry.summary)\n"
             if let payee = entry.payee { output += "    收款方：\(payee)\n" }
             if !entry.tags.isEmpty { output += "    标签：\(entry.tags.map { "#\($0)" }.joined(separator: " "))\n" }
             for link in entry.links { output += "    链接：\(link)\n" }
@@ -5085,11 +5108,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             paragraph.lineSpacing = 3
 
             switch sidePanelMode {
-            case .journal, .reconciliation:
+            case .journal:
                 if trimmed.range(of: "^\\d{4}-\\d{2}-\\d{2}", options: .regularExpression) != nil {
                     paragraph.paragraphSpacingBefore = location == 0 ? 0 : 12
                     paragraph.paragraphSpacing = 4
                     storage.addAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .paragraphStyle: paragraph], range: lineRange)
+                } else if leadingWhitespace > 0 {
+                    storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor], range: lineRange)
+                }
+            case .reconciliation:
+                if trimmed.range(of: "^\\d{4}-\\d{2}-\\d{2}", options: .regularExpression) != nil {
+                    paragraph.paragraphSpacingBefore = location == 0 ? 0 : 18
+                    paragraph.paragraphSpacing = 7
+                    storage.addAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .paragraphStyle: paragraph], range: lineRange)
+                } else if ["本次变动", "交易后余额", "Transaction change", "Balance after transaction"].contains(trimmed) {
+                    paragraph.paragraphSpacingBefore = trimmed == "交易后余额" || trimmed == "Balance after transaction" ? 8 : 1
+                    paragraph.paragraphSpacing = 3
+                    storage.addAttributes([.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: CountPaperTheme.secondaryInk, .paragraphStyle: paragraph], range: lineRange)
+                } else if trimmed.hasPrefix("● ") {
+                    storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium), .foregroundColor: CountPaperTheme.blue], range: lineRange)
                 } else if leadingWhitespace > 0 {
                     storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor], range: lineRange)
                 }
