@@ -638,19 +638,20 @@ func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], en
                 trackedChanges[posting.account, default: .zero] += posting.amount
             }
         }
-        let heading = "\(ledgerTransactionDateTime(entry))  \(entry.summary)"
         let info = ledgerTransactionUIInfo(entry)
-        let transactionSummary = "    \(info.kindTitle(english: english))  \(LedgerParser.format(info.amount))  ·  \(info.context(english: english))"
-        let balanceRows = tracked.map { account -> String in
-            let balance = LedgerParser.format(displayBalance(balances[account, default: .zero], account: account))
-            let change = displayBalance(trackedChanges[account, default: .zero], account: account)
-            guard change != .zero else { return "    \(account)  \(balance)" }
-            let changeText = english ? "change \(signedLedgerAmount(change))" : "本次 \(signedLedgerAmount(change))"
-            return "  ● \(account)  \(balance)    \(changeText)"
+        let details = [entry.payee, entry.tags.isEmpty ? nil : entry.tags.map { "#\($0)" }.joined(separator: " ")]
+            .compactMap { $0 }
+            .joined(separator: " · ")
+        let heading = "\(ledgerTransactionDateTime(entry))  \(entry.summary)\(details.isEmpty ? "" : "  ·  \(details)")"
+        let balanceItems = tracked.compactMap { account -> String? in
+            guard let rawChange = trackedChanges[account], rawChange != .zero else { return nil }
+            let balance = displayBalance(balances[account, default: .zero], account: account)
+            let change = displayBalance(rawChange, account: account)
+            return "\(ledgerAccountDisplayName(account)) \(LedgerParser.format(balance)) (\(signedLedgerAmount(change)))"
         }
-        let changeTitle = english ? "Transaction" : "交易信息"
-        let balanceTitle = english ? "Balance after transaction" : "交易后余额"
-        chunks.append(([heading, changeTitle, transactionSummary, balanceTitle] + balanceRows).joined(separator: "\n"))
+        let kind = info.kindTitle(english: english)
+        let line = "\(kind)  \(LedgerParser.format(info.amount))  ·  \(balanceItems.joined(separator: "   ·   "))"
+        chunks.append("\(heading)\n    \(line)")
     }
     return chunks.joined(separator: "\n\n")
 }
@@ -5427,17 +5428,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
                 }
             case .reconciliation:
                 if trimmed.range(of: "^\\d{4}-\\d{2}-\\d{2}", options: .regularExpression) != nil {
-                    paragraph.paragraphSpacingBefore = location == 0 ? 0 : 18
-                    paragraph.paragraphSpacing = 7
+                    paragraph.paragraphSpacingBefore = location == 0 ? 0 : 8
+                    paragraph.paragraphSpacing = 1
                     storage.addAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .paragraphStyle: paragraph], range: lineRange)
-                } else if ["交易信息", "交易后余额", "Transaction", "Balance after transaction"].contains(trimmed) {
-                    paragraph.paragraphSpacingBefore = trimmed == "交易后余额" || trimmed == "Balance after transaction" ? 8 : 1
-                    paragraph.paragraphSpacing = 3
-                    storage.addAttributes([.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: CountPaperTheme.secondaryInk, .paragraphStyle: paragraph], range: lineRange)
-                } else if trimmed.hasPrefix("● ") {
-                    storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium), .foregroundColor: CountPaperTheme.blue], range: lineRange)
                 } else if leadingWhitespace > 0 {
-                    storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular), .foregroundColor: NSColor.secondaryLabelColor], range: lineRange)
+                    paragraph.paragraphSpacing = 1
+                    storage.addAttributes([.font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium), .foregroundColor: CountPaperTheme.secondaryInk, .paragraphStyle: paragraph], range: lineRange)
                 }
             case .accounts:
                 let isRoot = leadingWhitespace == 0 && ["资产", "负债", "权益", "收入", "费用"].contains { trimmed.hasPrefix($0 + "  ") || trimmed == $0 }
