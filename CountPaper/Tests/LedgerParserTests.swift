@@ -41,7 +41,9 @@ struct LedgerParserTests {
         expect(report.personalSummary(month: "2026-08").expenseTotal == Decimal(string: "32.50"), "报表应按新格式正确汇总支出")
         let reconciliationText = reconciliationModeText(entries: report.journal, accounts: report.accounts)
         expect(reconciliationText.contains("2026-08-02 12:35") && reconciliationText.contains("资产:现金  967.50"), "逐笔对账应在线性累计后显示每笔交易后的资产余额")
-        expect(reconciliationText.contains("本次变动") && reconciliationText.contains("交易后余额") && reconciliationText.contains("本次 -32.50"), "对账应明确区分本次交易变化和交易完成后的余额")
+        expect(reconciliationText.contains("交易信息") && reconciliationText.contains("交易后余额") && reconciliationText.contains("本次 -32.50"), "对账应明确区分交易信息和交易完成后的余额")
+        expect(reconciliationText.contains("餐饮 · 现金") && !reconciliationText.contains("费用:餐饮  +32.50"), "界面对交易使用分类与付款账户语言，不应展示底层分录")
+        expect(ledgerTransactionUIInfo(report.journal.last!).context(english: false) == "餐饮 · 现金", "交易界面信息应转换为用户可理解的分类与账户")
         expect(!reconciliationText.contains(" · 第") && !reconciliationText.contains(" · line"), "日记账与对账界面不应暴露源码行号")
         expect(renderedReportBlockIndex(at: reconciliationText.range(of: "午餐")!.lowerBound.utf16Offset(in: reconciliationText), in: reconciliationText) == 1, "隐藏行号后仍应能按交易块定位原文")
         let revisedReport = LedgerParser.parse(sample.replacingOccurrences(of: "32.50", with: "42.50").replacingOccurrences(of: "-32.50", with: "-42.50"))
@@ -60,13 +62,16 @@ struct LedgerParserTests {
         expect(Set(combinedReport.accounts).isSuperset(of: ["资产:现金", "Assets:Cash"]), "多账本聚合应保留不同语言的账户维度")
         let diningJournalCSV = journalCSV(report: report, month: "2026-08", account: "费用:餐饮")
         expect(diningJournalCSV.contains("午餐") && !diningJournalCSV.contains("工资\""), "账户筛选应只保留包含所选账户的交易")
+        expect(diningJournalCSV.components(separatedBy: "\n").filter { !$0.isEmpty }.count == 2 && diningJournalCSV.contains("\"支出\"") && diningJournalCSV.contains("\"餐饮\"") && !diningJournalCSV.contains("\"-32.50\""), "日记账 CSV 应每笔交易只导出一行自然语言信息")
 
         let oldSyntax = "账本 0.1\n本位币 CNY\n账户 资产:现金\n"
         expect(!LedgerParser.parse(oldSyntax).diagnostics.isEmpty, "旧格式不得被新解析器兼容")
         let missingDate = sample.replacingOccurrences(of: "# 2026-08-01\n", with: "")
         expect(LedgerParser.parse(missingDate).diagnostics.contains { $0.contains("账户声明无效") }, "账户区后的交易必须先有日期一级标题")
         let unbalanced = sample.replacingOccurrences(of: "资产:现金  -32.50", with: "资产:现金  -30.00")
-        expect(LedgerParser.parse(unbalanced).diagnostics.contains { $0.contains("不平衡") }, "不平衡交易必须报错")
+        let unbalancedReport = LedgerParser.parse(unbalanced)
+        expect(unbalancedReport.diagnostics.contains { $0.contains("不平衡") }, "不平衡交易必须报错")
+        expect(unbalancedReport.balanceIssues.count == 1 && unbalancedReport.balanceIssues[0].date == "2026-08-02" && unbalancedReport.balanceIssues[0].summary == "午餐" && unbalancedReport.balanceIssues[0].difference == Decimal(string: "2.50"), "打开检查应返回不平衡交易的日期、摘要、位置和差额")
 
         let smartExpense = smartLedgerTransaction(shortcut: "餐饮32", accounts: ["资产:现金", "费用:餐饮", "收入:工资"], defaultAsset: "资产:现金", date: "2026-03-01")
         expect(smartExpense == "# 2026-03-01\n- 餐饮\n  - 费用:餐饮  32.00\n  - 资产:现金  -32.00", "紧凑智能输入应生成 Markdown 大纲交易")

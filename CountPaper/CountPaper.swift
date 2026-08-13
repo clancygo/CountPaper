@@ -81,6 +81,7 @@ final class CountPaperSurfaceView: NSView {
 enum CountPaperPreference {
     static let multipleAmounts = "preferences.multipleAmounts"
     static let multipleAmountsMigrated = "preferences.multipleAmountsMigrated"
+    static let checkBalanceOnOpen = "preferences.checkBalanceOnOpen"
     static let language = "preferences.language"
     /// A user-chosen external editor for opening the plain-text ledger file.
     /// An empty value deliberately means "let macOS choose".
@@ -176,6 +177,7 @@ func safeLedgerAutoCorrection(_ source: String) -> LedgerAutoCorrection {
 
 struct LedgerReport {
     var diagnostics: [String] = []
+    var balanceIssues: [LedgerBalanceIssue] = []
     var balances: [String: Decimal] = [:]
     var expenses: [String: Decimal] = [:]
     var accounts: [String] = []
@@ -241,11 +243,19 @@ struct LedgerReport {
     }
 }
 
+struct LedgerBalanceIssue: Equatable {
+    let date: String
+    let summary: String
+    let line: Int
+    let difference: Decimal
+}
+
 func aggregateLedgerReports(_ reports: [LedgerReport]) -> LedgerReport {
     var combined = LedgerReport()
     var accountSet = Set<String>()
     for report in reports {
         combined.diagnostics.append(contentsOf: report.diagnostics)
+        combined.balanceIssues.append(contentsOf: report.balanceIssues)
         for (account, amount) in report.balances { combined.balances[account, default: .zero] += amount }
         for (account, amount) in report.expenses { combined.expenses[account, default: .zero] += amount }
         accountSet.formUnion(report.accounts)
@@ -404,13 +414,16 @@ func journalCSV(report: LedgerReport, month: String?, startDate: String? = nil, 
     let baseEntries = startDate != nil || endDate != nil ? report.reportEntries(startDate: startDate, endDate: endDate) : report.journal.filter { month == nil || $0.date.hasPrefix(month! + "-") }
     let tagEntries = tag.map { selected in baseEntries.filter { $0.tags.contains(selected) } } ?? baseEntries
     let entries = account.map { selected in tagEntries.filter { $0.postings.contains { $0.account == selected } } } ?? tagEntries
-    var rows = ["日期,状态,摘要,收款方,标签,链接,账户,金额"]
+    var rows = ["日期,时间,状态,类型,摘要,收款方,分类,账户,转入账户,标签,链接,金额"]
     for entry in entries {
         let status = entry.flag == "!" ? "待确认" : "已确认"
         let tags = entry.tags.map { "#\($0)" }.joined(separator: " ")
-        for posting in entry.postings {
-            rows.append([entry.date, status, entry.summary, entry.payee ?? "", tags, entry.links.joined(separator: " "), posting.account, LedgerParser.format(posting.amount)].map(csvField).joined(separator: ","))
-        }
+        let info = ledgerTransactionUIInfo(entry)
+        rows.append([
+            entry.date, entry.time ?? "", status, info.kindTitle(english: false), entry.summary, entry.payee ?? "",
+            info.category ?? "", info.account ?? "", info.destinationAccount ?? "", tags,
+            entry.links.joined(separator: " "), LedgerParser.format(info.amount)
+        ].map(csvField).joined(separator: ","))
     }
     return "\u{FEFF}" + rows.joined(separator: "\n") + "\n"
 }
@@ -479,6 +492,57 @@ struct LedgerTransaction {
     let endLine: Int
 }
 
+enum LedgerTransactionUIKind { case expense, income, transfer, other }
+
+struct LedgerTransactionUIInfo {
+    let kind: LedgerTransactionUIKind
+    let category: String?
+    let account: String?
+    let destinationAccount: String?
+    let amount: Decimal
+
+    func kindTitle(english: Bool) -> String {
+        switch kind {
+        case .expense: english ? "Expense" : "支出"
+        case .income: english ? "Income" : "收入"
+        case .transfer: english ? "Transfer" : "转账"
+        case .other: english ? "Transaction" : "交易"
+        }
+    }
+
+    func context(english: Bool) -> String {
+        switch kind {
+        case .expense, .income:
+            return [category, account].compactMap { $0 }.joined(separator: " · ")
+        case .transfer:
+            return [account, destinationAccount].compactMap { $0 }.joined(separator: " → ")
+        case .other:
+            return account ?? (english ? "Other" : "其他")
+        }
+    }
+}
+
+func ledgerAccountDisplayName(_ account: String) -> String {
+    let components = account.split(separator: ":").map(String.init)
+    return components.count > 1 ? components.dropFirst().joined(separator: " · ") : account
+}
+
+func ledgerTransactionUIInfo(_ entry: LedgerTransaction) -> LedgerTransactionUIInfo {
+    let amount = ledgerTransactionDisplayAmount(entry)
+    if let category = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) {
+        let payment = entry.postings.first { isLedgerAccount($0.account, .asset) || isLedgerAccount($0.account, .liability) }
+        return LedgerTransactionUIInfo(kind: .expense, category: ledgerAccountDisplayName(category.account), account: payment.map { ledgerAccountDisplayName($0.account) }, destinationAccount: nil, amount: amount)
+    }
+    if let category = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) {
+        let received = entry.postings.first { isLedgerAccount($0.account, .asset) || isLedgerAccount($0.account, .liability) }
+        return LedgerTransactionUIInfo(kind: .income, category: ledgerAccountDisplayName(category.account), account: received.map { ledgerAccountDisplayName($0.account) }, destinationAccount: nil, amount: amount)
+    }
+    if entry.postings.count >= 2, entry.postings.allSatisfy({ isLedgerAccount($0.account, .asset) || isLedgerAccount($0.account, .liability) }) {
+        return LedgerTransactionUIInfo(kind: .transfer, category: nil, account: ledgerAccountDisplayName(entry.postings[1].account), destinationAccount: ledgerAccountDisplayName(entry.postings[0].account), amount: amount)
+    }
+    return LedgerTransactionUIInfo(kind: .other, category: nil, account: entry.postings.first.map { ledgerAccountDisplayName($0.account) }, destinationAccount: nil, amount: amount)
+}
+
 func ledgerTransactionDisplayAmount(_ entry: LedgerTransaction) -> Decimal {
     if let expense = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) { return expense.amount }
     if let income = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) { return -income.amount }
@@ -544,9 +608,8 @@ func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], en
             }
         }
         let heading = "\(ledgerTransactionDateTime(entry))  \(entry.summary)"
-        let transactionRows = entry.postings.map { posting in
-            "    \(posting.account)  \(signedLedgerAmount(displayBalance(posting.amount, account: posting.account)))"
-        }
+        let info = ledgerTransactionUIInfo(entry)
+        let transactionSummary = "    \(info.kindTitle(english: english))  \(LedgerParser.format(info.amount))  ·  \(info.context(english: english))"
         let balanceRows = tracked.map { account -> String in
             let balance = LedgerParser.format(displayBalance(balances[account, default: .zero], account: account))
             let change = displayBalance(trackedChanges[account, default: .zero], account: account)
@@ -554,9 +617,9 @@ func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], en
             let changeText = english ? "change \(signedLedgerAmount(change))" : "本次 \(signedLedgerAmount(change))"
             return "  ● \(account)  \(balance)    \(changeText)"
         }
-        let changeTitle = english ? "Transaction change" : "本次变动"
+        let changeTitle = english ? "Transaction" : "交易信息"
         let balanceTitle = english ? "Balance after transaction" : "交易后余额"
-        chunks.append(([heading, changeTitle] + transactionRows + [balanceTitle] + balanceRows).joined(separator: "\n"))
+        chunks.append(([heading, changeTitle, transactionSummary, balanceTitle] + balanceRows).joined(separator: "\n"))
     }
     return chunks.joined(separator: "\n\n")
 }
@@ -1169,12 +1232,13 @@ enum LedgerParser {
         func finishTransaction(at line: Int) {
             guard let start = transactionStart else { return }
             if current.count < 2 {
-                report.diagnostics.append("错误：第 \(start) 行交易至少需要两条分录")
+                report.diagnostics.append("错误：第 \(start) 行交易缺少完整账户信息")
                 transactionHasError = true
             }
             let total = current.reduce(Decimal.zero) { $0 + $1.amount }
             if total != .zero {
                 report.diagnostics.append("错误：第 \(start) 行交易不平衡（差额 \(format(total))）")
+                report.balanceIssues.append(LedgerBalanceIssue(date: currentDate ?? "", summary: transactionSummary ?? "", line: start, difference: total))
                 transactionHasError = true
             }
             if !transactionHasError {
@@ -1272,7 +1336,7 @@ enum LedgerParser {
                 }
                 let parts = body.split(whereSeparator: { $0 == " " || $0 == "\t" })
                 guard parts.count == 2, let amount = Decimal(string: String(parts[1]), locale: Locale(identifier: "en_US_POSIX")), amount != .zero else {
-                    report.diagnostics.append("错误：第 \(lineNumber) 行分录应为“  - 账户名  金额”")
+                    report.diagnostics.append("错误：第 \(lineNumber) 行账户记录应为“  - 账户名  金额”")
                     transactionHasError = true
                     continue
                 }
@@ -1281,7 +1345,7 @@ enum LedgerParser {
                 current.append(LedgerPosting(account: account, amount: amount, line: lineNumber))
                 continue
             }
-            report.diagnostics.append("错误：第 \(lineNumber) 行无法识别；请使用 # 日期、- 交易或两空格缩进的 - 分录")
+            report.diagnostics.append("错误：第 \(lineNumber) 行无法识别；请使用 # 日期、- 交易或两空格缩进的账户记录")
         }
         finishTransaction(at: lines.count + 1)
         if !sawOpeningFence || !sawClosingFence { report.diagnostics.insert("错误：缺少完整的 Markdown 文件头（---）", at: 0) }
@@ -1317,9 +1381,13 @@ enum LedgerParser {
 
         func finishTransaction(at line: Int) {
             guard let start = transactionStart else { return }
-            if current.count < 2 { report.diagnostics.append("错误：第 \(start) 行交易至少需要两条分录"); transactionHasError = true }
+            if current.count < 2 { report.diagnostics.append("错误：第 \(start) 行交易缺少完整账户信息"); transactionHasError = true }
             let total = current.reduce(Decimal.zero) { $0 + $1.amount }
-            if total != .zero { report.diagnostics.append("错误：第 \(start) 行交易不平衡（差额 \(format(total))）"); transactionHasError = true }
+            if total != .zero {
+                report.diagnostics.append("错误：第 \(start) 行交易不平衡（差额 \(format(total))）")
+                report.balanceIssues.append(LedgerBalanceIssue(date: transactionDate ?? "", summary: transactionSummary ?? "", line: start, difference: total))
+                transactionHasError = true
+            }
             if !transactionHasError {
                 report.transactions += 1
                 for posting in current {
@@ -1361,7 +1429,7 @@ enum LedgerParser {
                 let body = trimmed.components(separatedBy: ";").first!.trimmingCharacters(in: .whitespaces)
                 let parts = body.split(whereSeparator: { $0 == " " || $0 == "\t" })
                 guard parts.count == 2, let amount = Decimal(string: String(parts[1]), locale: Locale(identifier: "en_US_POSIX")), amount != .zero else {
-                    report.diagnostics.append("错误：第 \(lineNumber) 行分录应为“账户名  金额”")
+                    report.diagnostics.append("错误：第 \(lineNumber) 行账户记录应为“账户名  金额”")
                     transactionHasError = true
                     continue
                 }
@@ -1621,7 +1689,7 @@ final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTab
         scroll.autoresizingMask = [.width, .height]
         let columns: [(String, String, CGFloat)] = [
             ("date", ui("日期与时间", "Date & Time"), 132), ("detail", ui("摘要与备注", "Description & Notes"), 253),
-            ("account", ui("账户", "Accounts"), 230), ("tags", ui("标签", "Tags"), 130), ("amount", ui("金额", "Amount"), 90)
+            ("account", ui("分类 / 账户", "Category / Account"), 230), ("tags", ui("标签", "Tags"), 130), ("amount", ui("金额", "Amount"), 90)
         ]
         for (identifier, title, width) in columns {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier)); column.title = title; column.width = width
@@ -1684,7 +1752,7 @@ final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTab
         let value: String = switch identifier.rawValue {
         case "date": ledgerTransactionDateTime(entry)
         case "detail": ledgerTransactionDetail(entry)
-        case "account": entry.postings.map(\.account).joined(separator: "  ↔  ")
+        case "account": ledgerTransactionUIInfo(entry).context(english: english)
         case "tags": entry.tags.map { "#\($0)" }.joined(separator: " ")
         case "amount": LedgerParser.format(ledgerTransactionDisplayAmount(entry))
         default: ""
@@ -2259,6 +2327,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let syntaxHighlightLimit = 1_500_000
     private var highlightedReportLine: NSRange?
     private var allowsMultipleAmounts: Bool { UserDefaults.standard.bool(forKey: CountPaperPreference.multipleAmounts) }
+    private var checksBalanceOnOpen: Bool { UserDefaults.standard.bool(forKey: CountPaperPreference.checkBalanceOnOpen) }
     private var appLanguage: AppLanguage { AppLanguage(rawValue: UserDefaults.standard.string(forKey: CountPaperPreference.language) ?? "chinese") ?? .chinese }
 
     private func ui(_ chinese: String, _ english: String) -> String { appLanguage == .english ? english : chinese }
@@ -2287,7 +2356,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         // Batch entry is the normal quick-entry behaviour. Registering a
         // default preserves the Settings switch while making “32 57” work for
         // every new installation instead of silently treating it as invalid.
-        UserDefaults.standard.register(defaults: [CountPaperPreference.multipleAmounts: true])
+        UserDefaults.standard.register(defaults: [
+            CountPaperPreference.multipleAmounts: true,
+            CountPaperPreference.checkBalanceOnOpen: true
+        ])
         if !UserDefaults.standard.bool(forKey: CountPaperPreference.multipleAmountsMigrated) {
             UserDefaults.standard.set(true, forKey: CountPaperPreference.multipleAmounts)
             UserDefaults.standard.set(true, forKey: CountPaperPreference.multipleAmountsMigrated)
@@ -2447,9 +2519,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ledgerMenu.addItem(withTitle: ui("合并重复日期标题", "Merge Duplicate Date Headings"), action: #selector(consolidateDateHeadings(_:)), keyEquivalent: "")
         ledgerMenu.addItem(withTitle: ui("重新校验", "Validate Again"), action: #selector(reparseNow), keyEquivalent: "r")
         ledgerMenu.addItem(withTitle: ui("跳到下一个错误", "Go to Next Error"), action: #selector(jumpToNextDiagnostic(_:)), keyEquivalent: "j")
-        let help = NSMenuItem(title: ui("帮助", "Help"), action: nil, keyEquivalent: ""); menu.addItem(help)
-        let helpMenu = NSMenu(title: ui("帮助", "Help")); help.submenu = helpMenu
-        helpMenu.addItem(withTitle: ui("CountPaper 文本格式速查", "CountPaper Text Format Reference"), action: #selector(showFormatQuickReference(_:)), keyEquivalent: "?")
         NSApp.mainMenu = menu
     }
 
@@ -3356,17 +3425,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func showSettings(_ sender: Any?) {
-        let form = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 186))
+        let form = NSView(frame: NSRect(x: 0, y: 0, width: 500, height: 242))
         let heading = NSTextField(labelWithString: ui("录入与校验", "Entry & validation"))
         heading.font = .systemFont(ofSize: 13, weight: .semibold)
-        heading.frame = NSRect(x: 0, y: 160, width: 500, height: 20)
+        heading.frame = NSRect(x: 0, y: 216, width: 500, height: 20)
         let multiple = NSButton(checkboxWithTitle: ui("一栏录入多个金额", "Enter multiple amounts in one field"), target: nil, action: nil)
         multiple.state = allowsMultipleAmounts ? .on : .off
-        multiple.frame = NSRect(x: 0, y: 126, width: 500, height: 24)
+        multiple.frame = NSRect(x: 0, y: 182, width: 500, height: 24)
         let multipleHint = NSTextField(labelWithString: ui("例如输入 32 57，会生成两笔同类交易。", "For example, 32 57 creates two transactions of the same kind."))
         multipleHint.textColor = .secondaryLabelColor
         multipleHint.font = .systemFont(ofSize: 11)
-        multipleHint.frame = NSRect(x: 24, y: 104, width: 470, height: 18)
+        multipleHint.frame = NSRect(x: 24, y: 160, width: 470, height: 18)
+        let balanceCheck = NSButton(checkboxWithTitle: ui("打开账本时检查交易是否平衡", "Check transaction balance when opening a ledger"), target: nil, action: nil)
+        balanceCheck.state = checksBalanceOnOpen ? .on : .off
+        balanceCheck.frame = NSRect(x: 0, y: 126, width: 500, height: 24)
+        let balanceHint = NSTextField(labelWithString: ui("发现问题时提示交易日期、摘要、差额和所在位置；不会自动修改文件。", "Shows the date, description, difference, and location without changing the file."))
+        balanceHint.textColor = .secondaryLabelColor
+        balanceHint.font = .systemFont(ofSize: 11)
+        balanceHint.frame = NSRect(x: 24, y: 104, width: 470, height: 18)
         let language = NSPopUpButton(frame: .zero, pullsDown: false)
         language.addItems(withTitles: ["中文", "English"])
         language.selectItem(at: appLanguage == .english ? 1 : 0)
@@ -3385,7 +3461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let resetEditor = NSButton(title: ui("使用系统默认", "Use System Default"), target: self, action: #selector(resetSourceEditorApplication(_:)))
         resetEditor.bezelStyle = .texturedRounded
         resetEditor.frame = NSRect(x: 116, y: 8, width: 132, height: 28)
-        [heading, multiple, multipleHint, languageLabel, language, editorLabel, editorName, chooseEditor, resetEditor].forEach(form.addSubview)
+        [heading, multiple, multipleHint, balanceCheck, balanceHint, languageLabel, language, editorLabel, editorName, chooseEditor, resetEditor].forEach(form.addSubview)
         let alert = NSAlert()
         alert.messageText = ui("设置", "Settings")
         alert.informativeText = ui("常用设置集中于此；原始文本不会被应用自动改写。", "Common settings live here; the app never automatically rewrites your source text.")
@@ -3395,6 +3471,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         let oldLanguage = appLanguage
         UserDefaults.standard.set(multiple.state == .on, forKey: CountPaperPreference.multipleAmounts)
+        UserDefaults.standard.set(balanceCheck.state == .on, forKey: CountPaperPreference.checkBalanceOnOpen)
         let newLanguage: AppLanguage = language.indexOfSelectedItem == 1 ? .english : .chinese
         UserDefaults.standard.set(newLanguage.rawValue, forKey: CountPaperPreference.language)
         if oldLanguage != newLanguage {
@@ -3496,32 +3573,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             CommandPaletteItem(title: "打开当前交易链接", detail: "在默认浏览器中打开该交易关联的网页", action: { [weak self] in self?.openTransactionLinkAtCursor(nil) }),
             CommandPaletteItem(title: "跳转到行", detail: "快速定位账本文本中的行号", action: { [weak self] in self?.goToLine(nil) }),
             CommandPaletteItem(title: "跳到下一个错误", detail: "定位下一条格式诊断", action: { [weak self] in self?.jumpToNextDiagnostic(nil) }),
-            CommandPaletteItem(title: "文本格式速查", detail: "查看交易、分录与 0.2 扩展的最小语法", action: { [weak self] in self?.showFormatQuickReference(nil) }),
             CommandPaletteItem(title: "重新校验", detail: "立即重新解析当前账本", action: { [weak self] in self?.reparseNow() }),
             CommandPaletteItem(title: "保存文稿", detail: "保存到当前文件或选择保存位置", action: { [weak self] in self?.saveDocument(nil) }),
             CommandPaletteItem(title: "打开文稿", detail: "打开本地 .countpaper 账本文件", action: { [weak self] in self?.openDocument(nil) })
         ]
         CommandPaletteController(items: commands).show()
-    }
-
-    @objc private func showFormatQuickReference(_ sender: Any?) {
-        let alert = NSAlert()
-        alert.messageText = "CountPaper 文本格式速查"
-        alert.informativeText = """
-        一笔交易由一个不缩进的交易头和至少两条缩进分录组成；分录金额相加必须为 0。
-
-        2026-08-11 午餐
-            费用:餐饮  32.50
-            资产:现金  -32.50
-
-        可选的交易内注释：收款方、标签、链接。使用“记支出／收入／转账”会自动生成正确文本。
-
-        账本 0.2 还支持：预算、对账、事件、账户备注。它们不改变既有交易的双分录规则。
-
-        完整规范随项目中的《账本纯文本格式规范-0.1》提供；任何纯文本编辑器都可打开 .countpaper 文件。
-        """
-        alert.addButton(withTitle: "知道了")
-        alert.runModal()
     }
 
     private func loadUntitledSample() {
@@ -3539,6 +3595,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func loadDocument(at url: URL) {
         if let existing = ledgerSessions.firstIndex(where: { $0.url?.standardizedFileURL == url.standardizedFileURL }) {
             switchToLedgerSession(at: existing)
+            checkBalanceAfterOpening(text: textView.string, fileName: url.lastPathComponent)
             return
         }
         do {
@@ -3553,8 +3610,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             activeLedgerIndex = ledgerSessions.count - 1
             rememberRecentDocument(url)
             restoreActiveLedgerSession()
+            checkBalanceAfterOpening(text: text, fileName: url.lastPathComponent)
         }
         catch { presentError("无法打开文件：\(error.localizedDescription)") }
+    }
+
+    private func checkBalanceAfterOpening(text: String, fileName: String) {
+        guard checksBalanceOnOpen else { return }
+        let issues = LedgerParser.parse(text).balanceIssues
+        guard !issues.isEmpty else { return }
+        let shown = issues.prefix(8).map { issue -> String in
+            let date = issue.date.isEmpty ? ui("日期未知", "Unknown date") : issue.date
+            let summary = issue.summary.isEmpty ? ui("未命名交易", "Untitled transaction") : issue.summary
+            return ui("• \(date)「\(summary)」— 第 \(issue.line) 行，差额 \(LedgerParser.format(issue.difference))", "• \(date) “\(summary)” — line \(issue.line), difference \(LedgerParser.format(issue.difference))")
+        }.joined(separator: "\n")
+        let remainder = issues.count > 8 ? ui("\n另有 \(issues.count - 8) 处未列出。", "\n\(issues.count - 8) more issue(s) not shown.") : ""
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = ui("发现 \(issues.count) 笔不平衡交易", "\(issues.count) unbalanced transaction(s) found")
+        alert.informativeText = ui("“\(fileName)”中的这些交易不会计入余额和报表。文件未被修改。\n\n\(shown)\(remainder)", "These transactions in “\(fileName)” are excluded from balances and reports. The file was not changed.\n\n\(shown)\(remainder)")
+        alert.addButton(withTitle: ui("查看第一处", "Show First"))
+        alert.addButton(withTitle: ui("稍后处理", "Later"))
+        guard alert.runModal() == .alertFirstButtonReturn, let first = issues.first,
+              let range = ledgerLineRange(in: textView.string, line: first.line) else { return }
+        showSourceEditor(nil)
+        textView.setSelectedRange(range)
+        textView.scrollRangeToVisible(range)
+        statusLabel.stringValue = ui("已定位到不平衡交易", "Located the unbalanced transaction")
     }
 
     private func reloadActiveDocumentFromDisk() {
@@ -3713,14 +3795,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     @objc private func editTransactionAtCursor(_ sender: Any?) {
         let raw = textView.string
-        guard let transaction = transactionAtCursor(in: raw), transaction.postings.count == 2,
-              transaction.postings[0].amount > .zero, transaction.postings[1].amount < .zero,
+        guard let transaction = transactionAtCursor(in: raw),
+              let components = editableComponents(for: transaction),
               let range = ledgerSourceRange(in: raw, fromLine: transaction.startLine, throughLine: transaction.endLine) else {
-            presentError("请将光标放在一笔标准的两分录交易内。复杂交易请直接在原文中编辑，以保留全部内容。")
+            presentError(ui("这笔交易无法使用表单修改，请改用“查看原始文本”。", "This transaction cannot be edited with the form. Use View Source Text instead."))
             return
         }
         let original = (raw as NSString).substring(with: range)
-        guard canonicalOutlineTransactionBlock(source: original, summary: transaction.summary, flag: transaction.flag, time: transaction.time, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: transaction.postings[0].account, sourceAccount: transaction.postings[1].account, amount: transaction.postings[0].amount) != nil else {
+        guard canonicalOutlineTransactionBlock(source: original, summary: transaction.summary, flag: transaction.flag, time: transaction.time, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: components.destination.account, sourceAccount: components.source.account, amount: components.destination.amount) != nil else {
             presentError("这笔交易含未知注释或非标准排版。请直接在原文中编辑，以保留全部内容。")
             return
         }
@@ -3732,10 +3814,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let payee = NSTextField(string: transaction.payee ?? ""); payee.placeholderString = "可选，例如：星巴克"
         let tags = NSTextField(string: transaction.tags.joined(separator: ", ")); tags.placeholderString = "可选，逗号分隔，例如：咖啡, 日常"
         let links = NSTextField(string: transaction.links.joined(separator: ", ")); links.placeholderString = "可选，https://…；多个链接用逗号分隔"
-        let destination = NSPopUpButton(frame: .zero, pullsDown: false); destination.addItems(withTitles: latestReport.accounts); destination.selectItem(withTitle: transaction.postings[0].account)
-        let source = NSPopUpButton(frame: .zero, pullsDown: false); source.addItems(withTitles: latestReport.accounts); source.selectItem(withTitle: transaction.postings[1].account)
-        let amount = NSTextField(string: LedgerParser.format(transaction.postings[0].amount))
-        let fields: [(String, NSView)] = [("日期", date), ("摘要", summary), ("收款方", payee), ("标签", tags), ("链接", links), ("增加账户", destination), ("减少账户", source), ("金额", amount)]
+        let destination = NSPopUpButton(frame: .zero, pullsDown: false); destination.addItems(withTitles: latestReport.accounts); destination.selectItem(withTitle: components.destination.account)
+        let source = NSPopUpButton(frame: .zero, pullsDown: false); source.addItems(withTitles: latestReport.accounts); source.selectItem(withTitle: components.source.account)
+        let amount = NSTextField(string: LedgerParser.format(components.destination.amount))
+        let accountLabels: (String, String) = switch components.kind {
+        case .expense: (ui("费用分类", "Category"), ui("付款账户", "Paid from"))
+        case .income: (ui("收款账户", "Received in"), ui("收入分类", "Income category"))
+        case .transfer: (ui("转入账户", "Transfer to"), ui("转出账户", "Transfer from"))
+        }
+        let fields: [(String, NSView)] = [(ui("日期", "Date"), date), (ui("摘要", "Description"), summary), (ui("收款方", "Payee"), payee), (ui("标签", "Tags"), tags), (ui("链接", "Links"), links), (accountLabels.0, destination), (accountLabels.1, source), (ui("金额", "Amount"), amount)]
         for (index, pair) in fields.enumerated() {
             let y = CGFloat(240 - index * 32)
             let label = NSTextField(labelWithString: pair.0); label.alignment = .right; label.frame = NSRect(x: 0, y: y, width: 95, height: 24)
@@ -3768,7 +3855,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
                 continue
             }
             guard destination.titleOfSelectedItem != source.titleOfSelectedItem else {
-                alert.informativeText = "增加和减少账户不能相同。"
+                alert.informativeText = components.kind == .transfer ? ui("转入和转出账户不能相同。", "Transfer accounts must differ.") : ui("分类与收付款账户不能相同。", "The category and payment account must differ.")
                 continue
             }
             guard let replacement = canonicalOutlineTransactionBlock(source: original, summary: cleanedSummary, flag: transaction.flag, time: transaction.time, payee: cleanedPayee.isEmpty ? nil : cleanedPayee, tags: cleanedTags, links: cleanedLinks, destination: destination.titleOfSelectedItem!, sourceAccount: source.titleOfSelectedItem!, amount: value) else { return }
@@ -4675,9 +4762,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             : recent.map { entry in
                 let fullDetail = ledgerTransactionDetail(entry)
                 let detail = fullDetail.count > 19 ? String(fullDetail.prefix(18)) + "…" : fullDetail
-                let accountPair = entry.postings.prefix(2).map(\.account).joined(separator: " ↔ ")
-                let compactAccounts = accountPair.count > 24 ? String(accountPair.prefix(23)) + "…" : accountPair
-                return "\(ledgerTransactionDateTime(entry))\t\(detail)\t\(compactAccounts)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
+                let context = ledgerTransactionUIInfo(entry).context(english: appLanguage == .english)
+                let compactContext = context.count > 24 ? String(context.prefix(23)) + "…" : context
+                return "\(ledgerTransactionDateTime(entry))\t\(detail)\t\(compactContext)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
             }.joined(separator: "\n")
         applyDashboardRecentTypography()
     }
@@ -5058,13 +5145,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         var output = ""
         for entry in entries.reversed() {
             let flag = entry.flag.map { " \($0)" } ?? ""
-            output += "\(ledgerTransactionDateTime(entry))\(flag)  \(entry.summary)\n"
+            let info = ledgerTransactionUIInfo(entry)
+            output += "\(ledgerTransactionDateTime(entry))\(flag)  \(entry.summary)  ·  \(LedgerParser.format(info.amount))\n"
+            output += "    \(info.kindTitle(english: appLanguage == .english))：\(info.context(english: appLanguage == .english))\n"
             if let payee = entry.payee { output += "    收款方：\(payee)\n" }
             if !entry.tags.isEmpty { output += "    标签：\(entry.tags.map { "#\($0)" }.joined(separator: " "))\n" }
             for link in entry.links { output += "    链接：\(link)\n" }
-            for posting in entry.postings {
-                output += "    \(posting.account)  \(LedgerParser.format(posting.amount))\n"
-            }
             output += "\n"
         }
         return output
@@ -5128,7 +5214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
                     paragraph.paragraphSpacingBefore = location == 0 ? 0 : 18
                     paragraph.paragraphSpacing = 7
                     storage.addAttributes([.font: NSFont.systemFont(ofSize: 14, weight: .semibold), .paragraphStyle: paragraph], range: lineRange)
-                } else if ["本次变动", "交易后余额", "Transaction change", "Balance after transaction"].contains(trimmed) {
+                } else if ["交易信息", "交易后余额", "Transaction", "Balance after transaction"].contains(trimmed) {
                     paragraph.paragraphSpacingBefore = trimmed == "交易后余额" || trimmed == "Balance after transaction" ? 8 : 1
                     paragraph.paragraphSpacing = 3
                     storage.addAttributes([.font: NSFont.systemFont(ofSize: 11, weight: .semibold), .foregroundColor: CountPaperTheme.secondaryInk, .paragraphStyle: paragraph], range: lineRange)
