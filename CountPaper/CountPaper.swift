@@ -478,6 +478,34 @@ struct LedgerTransaction {
     let endLine: Int
 }
 
+func ledgerTransactionDisplayAmount(_ entry: LedgerTransaction) -> Decimal {
+    if let expense = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) { return expense.amount }
+    if let income = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) { return -income.amount }
+    return entry.postings.first(where: { $0.amount > .zero })?.amount ?? entry.postings.first?.amount ?? .zero
+}
+
+func ledgerTransactionDetail(_ entry: LedgerTransaction) -> String {
+    var parts = [entry.summary]
+    if let payee = entry.payee, !payee.isEmpty { parts.append(payee) }
+    if !entry.tags.isEmpty { parts.append(entry.tags.map { "#\($0)" }.joined(separator: " ")) }
+    return parts.joined(separator: " · ")
+}
+
+func filteredLedgerTransactions(_ entries: [LedgerTransaction], query: String = "", startDate: String? = nil, endDate: String? = nil, minimumAmount: Decimal? = nil, maximumAmount: Decimal? = nil, tag: String? = nil) -> [LedgerTransaction] {
+    let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).localizedLowercase
+    return entries.filter { entry in
+        let amount = ledgerTransactionDisplayAmount(entry)
+        if let startDate, entry.date < startDate { return false }
+        if let endDate, entry.date > endDate { return false }
+        if let minimumAmount, amount < minimumAmount { return false }
+        if let maximumAmount, amount > maximumAmount { return false }
+        if let tag, !entry.tags.contains(tag) { return false }
+        guard !needle.isEmpty else { return true }
+        let searchable = ([entry.date, entry.summary, entry.payee ?? "", LedgerParser.format(amount)] + entry.tags + entry.links + entry.postings.map(\.account)).joined(separator: " ").localizedLowercase
+        return searchable.contains(needle)
+    }
+}
+
 func transactionMetadata(fromComment comment: String) -> (payee: String?, tags: [String]) {
     let content = comment.trimmingCharacters(in: .whitespacesAndNewlines)
     let payeePrefixes = ["收款方:", "收款方："]
@@ -1388,6 +1416,173 @@ final class DashboardRecentTextView: NSTextView {
     }
 }
 
+final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
+    private let english: Bool
+    private let panel: NSPanel
+    private let search = NSSearchField(frame: .zero)
+    private let startDate = NSDatePicker()
+    private let endDate = NSDatePicker()
+    private let minimumAmount = NSTextField(string: "")
+    private let maximumAmount = NSTextField(string: "")
+    private let tagPicker = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let table = NSTableView()
+    private let countLabel = NSTextField(labelWithString: "")
+    private let editButton = NSButton(title: "", target: nil, action: nil)
+    private let deleteButton = NSButton(title: "", target: nil, action: nil)
+    private var transactions: [LedgerTransaction]
+    private var filtered: [LedgerTransaction] = []
+    var onEdit: ((LedgerTransaction) -> Void)?
+    var onDelete: ((LedgerTransaction) -> Bool)?
+
+    init(transactions: [LedgerTransaction], english: Bool) {
+        self.transactions = transactions
+        self.english = english
+        panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled, .closable, .resizable, .utilityWindow], backing: .buffered, defer: false)
+        super.init()
+        buildInterface()
+        updateTransactions(transactions, resetFilters: true)
+    }
+
+    private func ui(_ chinese: String, _ englishText: String) -> String { english ? englishText : chinese }
+
+    private func buildInterface() {
+        panel.title = ui("全部交易", "All Transactions")
+        panel.minSize = NSSize(width: 760, height: 500)
+        panel.delegate = self
+        panel.isReleasedWhenClosed = false
+        let content = CountPaperSurfaceView(fill: CountPaperTheme.canvas)
+        panel.contentView = content
+
+        let heading = NSTextField(labelWithString: ui("查找交易", "Find Transactions"))
+        heading.font = .systemFont(ofSize: 22, weight: .semibold); heading.textColor = CountPaperTheme.ink
+        heading.frame = NSRect(x: 24, y: 552, width: 220, height: 28)
+        content.addSubview(heading)
+
+        search.placeholderString = ui("搜索日期、金额、摘要、收款方、账户或标签", "Search date, amount, description, payee, account, or tag")
+        search.sendsSearchStringImmediately = true; search.target = self; search.action = #selector(filtersChanged(_:)); search.delegate = self
+        search.frame = NSRect(x: 24, y: 510, width: 480, height: 28); search.autoresizingMask = [.width]
+        content.addSubview(search)
+        tagPicker.target = self; tagPicker.action = #selector(filtersChanged(_:)); tagPicker.frame = NSRect(x: 516, y: 510, width: 176, height: 28); tagPicker.autoresizingMask = [.minXMargin]
+        content.addSubview(tagPicker)
+        let reset = NSButton(title: ui("重置筛选", "Reset"), target: self, action: #selector(resetFilters(_:)))
+        reset.bezelStyle = .rounded; reset.frame = NSRect(x: 704, y: 510, width: 172, height: 28); reset.autoresizingMask = [.minXMargin]
+        content.addSubview(reset)
+
+        startDate.datePickerStyle = .textFieldAndStepper; startDate.datePickerElements = .yearMonthDay; startDate.target = self; startDate.action = #selector(filtersChanged(_:))
+        endDate.datePickerStyle = .textFieldAndStepper; endDate.datePickerElements = .yearMonthDay; endDate.target = self; endDate.action = #selector(filtersChanged(_:))
+        minimumAmount.placeholderString = ui("最低金额", "Minimum amount"); maximumAmount.placeholderString = ui("最高金额", "Maximum amount")
+        minimumAmount.delegate = self; maximumAmount.delegate = self
+        let filterItems: [(String, NSView, CGFloat)] = [
+            (ui("从", "From"), startDate, 150), (ui("到", "To"), endDate, 150),
+            (ui("金额", "Amount"), minimumAmount, 120), (ui("至", "to"), maximumAmount, 120)
+        ]
+        var x: CGFloat = 24
+        for (title, control, width) in filterItems {
+            let label = NSTextField(labelWithString: title); label.textColor = CountPaperTheme.secondaryInk; label.font = .systemFont(ofSize: 11, weight: .medium)
+            label.frame = NSRect(x: x, y: 472, width: 46, height: 22); content.addSubview(label); x += 42
+            control.frame = NSRect(x: x, y: 469, width: width, height: 26); content.addSubview(control); x += width + 14
+        }
+
+        let scroll = NSScrollView(frame: NSRect(x: 24, y: 72, width: 852, height: 382))
+        scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.borderType = .noBorder
+        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 12; scroll.layer?.borderWidth = 0.6; scroll.layer?.borderColor = CountPaperTheme.border.cgColor
+        scroll.autoresizingMask = [.width, .height]
+        let columns: [(String, String, CGFloat)] = [
+            ("date", ui("日期", "Date"), 100), ("detail", ui("摘要与备注", "Description & Notes"), 285),
+            ("account", ui("账户", "Accounts"), 230), ("tags", ui("标签", "Tags"), 130), ("amount", ui("金额", "Amount"), 90)
+        ]
+        for (identifier, title, width) in columns {
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier)); column.title = title; column.width = width
+            table.addTableColumn(column)
+        }
+        table.headerView = NSTableHeaderView(); table.rowHeight = 34; table.usesAlternatingRowBackgroundColors = true
+        table.dataSource = self; table.delegate = self; table.target = self; table.doubleAction = #selector(editSelected(_:)); table.allowsEmptySelection = true
+        scroll.documentView = table; content.addSubview(scroll)
+
+        countLabel.textColor = CountPaperTheme.secondaryInk; countLabel.font = .systemFont(ofSize: 12)
+        countLabel.frame = NSRect(x: 24, y: 26, width: 260, height: 24); countLabel.autoresizingMask = [.maxYMargin]
+        content.addSubview(countLabel)
+        editButton.title = ui("修改", "Edit"); editButton.image = NSImage(systemSymbolName: "pencil", accessibilityDescription: editButton.title); editButton.imagePosition = .imageLeading; editButton.target = self; editButton.action = #selector(editSelected(_:)); editButton.isEnabled = false
+        editButton.frame = NSRect(x: 610, y: 20, width: 84, height: 30); editButton.autoresizingMask = [.minXMargin, .maxYMargin]
+        content.addSubview(editButton)
+        deleteButton.title = ui("删除", "Delete"); deleteButton.image = NSImage(systemSymbolName: "trash", accessibilityDescription: deleteButton.title); deleteButton.imagePosition = .imageLeading; deleteButton.contentTintColor = CountPaperTheme.red; deleteButton.target = self; deleteButton.action = #selector(deleteSelected(_:)); deleteButton.isEnabled = false
+        deleteButton.frame = NSRect(x: 702, y: 20, width: 84, height: 30); deleteButton.autoresizingMask = [.minXMargin, .maxYMargin]
+        content.addSubview(deleteButton)
+        let close = NSButton(title: ui("完成", "Done"), target: self, action: #selector(close(_:))); close.bezelStyle = .rounded
+        close.frame = NSRect(x: 794, y: 20, width: 82, height: 30); close.autoresizingMask = [.minXMargin, .maxYMargin]
+        content.addSubview(close)
+    }
+
+    func show() {
+        panel.center(); panel.makeKeyAndOrderFront(nil); panel.makeFirstResponder(search); NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func updateTransactions(_ entries: [LedgerTransaction], resetFilters: Bool = false) {
+        transactions = entries.sorted { $0.date == $1.date ? $0.startLine > $1.startLine : $0.date > $1.date }
+        let dates = transactions.compactMap { Self.dateFormatter.date(from: $0.date) }
+        if resetFilters {
+            startDate.dateValue = dates.min() ?? Date(); endDate.dateValue = dates.max() ?? Date()
+            search.stringValue = ""; minimumAmount.stringValue = ""; maximumAmount.stringValue = ""
+        }
+        let priorTag = resetFilters ? nil : tagPicker.titleOfSelectedItem
+        tagPicker.removeAllItems(); tagPicker.addItem(withTitle: ui("所有标签", "All Tags"))
+        tagPicker.addItems(withTitles: Array(Set(transactions.flatMap(\.tags))).sorted().map { "#\($0)" })
+        if let priorTag { tagPicker.selectItem(withTitle: priorTag) }
+        refresh()
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.calendar = Calendar(identifier: .gregorian); formatter.dateFormat = "yyyy-MM-dd"; return formatter
+    }()
+
+    private func refresh() {
+        let selectedTag = tagPicker.indexOfSelectedItem > 0 ? tagPicker.titleOfSelectedItem.map { String($0.dropFirst()) } : nil
+        let min = Decimal(string: minimumAmount.stringValue, locale: Locale(identifier: "en_US_POSIX"))
+        let max = Decimal(string: maximumAmount.stringValue, locale: Locale(identifier: "en_US_POSIX"))
+        filtered = filteredLedgerTransactions(transactions, query: search.stringValue, startDate: Self.dateFormatter.string(from: startDate.dateValue), endDate: Self.dateFormatter.string(from: endDate.dateValue), minimumAmount: min, maximumAmount: max, tag: selectedTag)
+        table.reloadData(); table.deselectAll(nil); updateSelectionState()
+        countLabel.stringValue = ui("找到 \(filtered.count) 笔交易", "\(filtered.count) transactions")
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int { filtered.count }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard filtered.indices.contains(row), let identifier = tableColumn?.identifier else { return nil }
+        let entry = filtered[row]
+        let value: String = switch identifier.rawValue {
+        case "date": entry.date
+        case "detail": ledgerTransactionDetail(entry)
+        case "account": entry.postings.map(\.account).joined(separator: "  ↔  ")
+        case "tags": entry.tags.map { "#\($0)" }.joined(separator: " ")
+        case "amount": LedgerParser.format(ledgerTransactionDisplayAmount(entry))
+        default: ""
+        }
+        let cell = tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView ?? NSTableCellView()
+        cell.identifier = identifier; cell.subviews.forEach { $0.removeFromSuperview() }
+        let label = NSTextField(labelWithString: value); label.lineBreakMode = .byTruncatingTail; label.textColor = CountPaperTheme.ink
+        label.font = identifier.rawValue == "amount" ? .monospacedDigitSystemFont(ofSize: 12, weight: .medium) : .systemFont(ofSize: 12)
+        label.alignment = identifier.rawValue == "amount" ? .right : .left; label.frame = NSRect(x: 5, y: 7, width: max(30, (tableColumn?.width ?? 100) - 10), height: 19); label.autoresizingMask = [.width]
+        cell.addSubview(label); return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) { updateSelectionState() }
+    func controlTextDidChange(_ obj: Notification) { refresh() }
+    @objc private func filtersChanged(_ sender: Any?) { refresh() }
+    private func updateSelectionState() { let valid = filtered.indices.contains(table.selectedRow); editButton.isEnabled = valid; deleteButton.isEnabled = valid }
+
+    @objc private func resetFilters(_ sender: Any?) { updateTransactions(transactions, resetFilters: true) }
+    @objc private func editSelected(_ sender: Any?) {
+        guard filtered.indices.contains(table.selectedRow) else { return }
+        let entry = filtered[table.selectedRow]; panel.orderOut(nil); onEdit?(entry)
+    }
+    @objc private func deleteSelected(_ sender: Any?) {
+        guard filtered.indices.contains(table.selectedRow) else { return }
+        let entry = filtered[table.selectedRow]
+        if onDelete?(entry) == true { transactions.removeAll { $0.startLine == entry.startLine }; refresh() }
+    }
+    @objc private func close(_ sender: Any?) { panel.orderOut(nil) }
+}
+
 /// CountPaper retains a live source document in memory. Command-W shelves the
 /// window instead of closing the last native window, avoiding the termination
 /// path while keeping the requested shortcut behaviour.
@@ -1813,12 +2008,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let dashboardRecentView = DashboardRecentTextView()
     private let dashboardEditButton = NSButton(title: "", target: nil, action: nil)
     private let dashboardDeleteButton = NSButton(title: "", target: nil, action: nil)
+    private let dashboardMoreButton = NSButton(title: "", target: nil, action: nil)
     private let inlineSaveButton = NSButton(title: "", target: nil, action: nil)
     private let inlineCancelEditButton = NSButton(title: "", target: nil, action: nil)
     private let inlineEntryTitleLabel = NSTextField(labelWithString: "")
     private var dashboardRecentTransactions: [LedgerTransaction] = []
     private var selectedDashboardTransaction: LedgerTransaction?
     private var editingDashboardTransaction: LedgerTransaction?
+    private var transactionBrowserController: TransactionBrowserController?
     private let inlineKindControl = NSSegmentedControl(labels: ["支出", "收入", "转账"], trackingMode: .selectOne, target: nil, action: nil)
     private let inlineSuggestionPicker = NSPopUpButton(frame: .zero, pullsDown: false)
     private let inlineAmountField = NSTextField(string: "")
@@ -2230,14 +2427,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let recentHeader = NSStackView(); recentHeader.orientation = .horizontal; recentHeader.alignment = .centerY
         recentHeader.widthAnchor.constraint(equalToConstant: 644).isActive = true
         recentHeader.addArrangedSubview(recentTitle)
-        dashboardEditButton.title = ui("修改", "Edit"); dashboardEditButton.target = self; dashboardEditButton.action = #selector(editSelectedDashboardTransaction(_:)); dashboardEditButton.bezelStyle = .inline; dashboardEditButton.isEnabled = false
-        dashboardDeleteButton.title = ui("删除", "Delete"); dashboardDeleteButton.target = self; dashboardDeleteButton.action = #selector(deleteSelectedDashboardTransaction(_:)); dashboardDeleteButton.bezelStyle = .inline; dashboardDeleteButton.contentTintColor = CountPaperTheme.red; dashboardDeleteButton.isEnabled = false
+        dashboardMoreButton.title = ui("更多…", "More…"); dashboardMoreButton.target = self; dashboardMoreButton.action = #selector(showTransactionBrowser(_:)); styleDashboardActionButton(dashboardMoreButton, symbol: "list.bullet.rectangle", tint: CountPaperTheme.blue, filled: true); dashboardMoreButton.widthAnchor.constraint(equalToConstant: 78).isActive = true
+        dashboardEditButton.title = ui("修改", "Edit"); dashboardEditButton.target = self; dashboardEditButton.action = #selector(editSelectedDashboardTransaction(_:)); styleDashboardActionButton(dashboardEditButton, symbol: "pencil", tint: CountPaperTheme.blue); dashboardEditButton.widthAnchor.constraint(equalToConstant: 62).isActive = true; dashboardEditButton.isEnabled = false
+        dashboardDeleteButton.title = ui("删除", "Delete"); dashboardDeleteButton.target = self; dashboardDeleteButton.action = #selector(deleteSelectedDashboardTransaction(_:)); styleDashboardActionButton(dashboardDeleteButton, symbol: "trash", tint: CountPaperTheme.red); dashboardDeleteButton.widthAnchor.constraint(equalToConstant: 62).isActive = true; dashboardDeleteButton.isEnabled = false
         let openTextFile = NSButton(title: ui("编辑文本", "Edit Text"), target: self, action: #selector(openLedgerInTextEditor(_:)))
-        openTextFile.bezelStyle = .inline
-        openTextFile.contentTintColor = CountPaperTheme.secondaryInk
+        styleDashboardActionButton(openTextFile, symbol: "doc.plaintext", tint: CountPaperTheme.secondaryInk)
+        openTextFile.widthAnchor.constraint(equalToConstant: 84).isActive = true
         openTextFile.toolTip = ui("使用系统默认或“设置”中选择的 App 打开当前账本文件", "Open the current ledger in macOS's default app or the app selected in Settings")
         openTextFile.setAccessibilityLabel(ui("用外部 App 打开文本文件", "Open text file in external app"))
         recentHeader.addArrangedSubview(NSView())
+        recentHeader.addArrangedSubview(dashboardMoreButton)
         recentHeader.addArrangedSubview(dashboardEditButton)
         recentHeader.addArrangedSubview(dashboardDeleteButton)
         recentHeader.addArrangedSubview(openTextFile)
@@ -2598,6 +2797,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         button.contentTintColor = .white
         button.font = .systemFont(ofSize: 13, weight: .semibold)
         setPrimaryButtonTitle(button, button.title)
+    }
+
+    private func styleDashboardActionButton(_ button: NSButton, symbol: String, tint: NSColor, filled: Bool = false) {
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.cornerRadius = 7
+        button.layer?.backgroundColor = filled ? CountPaperTheme.blueSoft.cgColor : NSColor.clear.cgColor
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: button.title)
+        button.imagePosition = .imageLeading
+        button.contentTintColor = tint
+        button.font = .systemFont(ofSize: 12, weight: .medium)
+        button.attributedTitle = NSAttributedString(string: button.title, attributes: [.font: button.font as Any, .foregroundColor: tint])
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
     }
 
     private func setPrimaryButtonTitle(_ button: NSButton, _ title: String) {
@@ -4228,17 +4440,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             }
             .prefix(8))
         dashboardRecentTransactions = recent
+        transactionBrowserController?.updateTransactions(report.journal)
         selectedDashboardTransaction = nil
         dashboardEditButton.isEnabled = false
         dashboardDeleteButton.isEnabled = false
         dashboardRecentView.string = recent.isEmpty
             ? ui("暂无交易", "No transactions")
             : recent.map { entry in
-                let amount: Decimal
-                if let expense = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) { amount = expense.amount }
-                else if let income = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) { amount = -income.amount }
-                else { amount = entry.postings.first(where: { $0.amount > .zero })?.amount ?? .zero }
-                return "\(entry.date)\t\(entry.summary)\t\(LedgerParser.format(amount))"
+                let account = entry.postings.first(where: { isLedgerAccount($0.account, .expense) || isLedgerAccount($0.account, .income) })?.account
+                    ?? entry.postings.first?.account ?? ""
+                let fullDetail = ledgerTransactionDetail(entry)
+                let detail = fullDetail.count > 24 ? String(fullDetail.prefix(23)) + "…" : fullDetail
+                let compactAccount = account.count > 15 ? String(account.prefix(14)) + "…" : account
+                return "\(entry.date)\t\(detail)\t\(compactAccount)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
             }.joined(separator: "\n")
         applyDashboardRecentTypography()
     }
@@ -4258,6 +4472,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         dashboardRecentView.setSelectedRange(range)
     }
 
+    @objc private func showTransactionBrowser(_ sender: Any?) {
+        if transactionBrowserController == nil {
+            let controller = TransactionBrowserController(transactions: latestReport.journal, english: appLanguage == .english)
+            controller.onEdit = { [weak self] transaction in
+                self?.sidePanelMode = .overview
+                self?.updateSidebarSelection()
+                self?.beginEditingDashboardTransaction(transaction)
+            }
+            controller.onDelete = { [weak self] transaction in self?.deleteDashboardTransaction(transaction) ?? false }
+            transactionBrowserController = controller
+        } else {
+            transactionBrowserController?.updateTransactions(latestReport.journal)
+        }
+        transactionBrowserController?.show()
+    }
+
     private func editableComponents(for transaction: LedgerTransaction) -> (kind: QuickEntryKind, destination: LedgerPosting, source: LedgerPosting)? {
         guard transaction.postings.count == 2 else { return nil }
         if let destination = transaction.postings.first(where: { isLedgerAccount($0.account, .expense) }),
@@ -4275,8 +4505,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func editSelectedDashboardTransaction(_ sender: Any?) {
-        guard let transaction = selectedDashboardTransaction,
-              let components = editableComponents(for: transaction),
+        guard let transaction = selectedDashboardTransaction else { return }
+        beginEditingDashboardTransaction(transaction)
+    }
+
+    private func beginEditingDashboardTransaction(_ transaction: LedgerTransaction) {
+        guard let components = editableComponents(for: transaction),
               let range = ledgerSourceRange(in: textView.string, fromLine: transaction.startLine, throughLine: transaction.endLine) else { return }
         let original = (textView.string as NSString).substring(with: range)
         guard canonicalOutlineTransactionBlock(source: original, summary: transaction.summary, flag: transaction.flag, payee: transaction.payee, tags: transaction.tags, links: transaction.links, destination: components.destination.account, sourceAccount: components.source.account, amount: components.destination.amount) != nil else {
@@ -4312,14 +4546,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     @objc private func deleteSelectedDashboardTransaction(_ sender: Any?) {
-        guard let transaction = selectedDashboardTransaction,
-              let range = ledgerSourceRange(in: textView.string, fromLine: transaction.startLine, throughLine: transaction.endLine) else { return }
+        guard let transaction = selectedDashboardTransaction else { return }
+        _ = deleteDashboardTransaction(transaction)
+    }
+
+    private func deleteDashboardTransaction(_ transaction: LedgerTransaction) -> Bool {
+        guard let range = ledgerSourceRange(in: textView.string, fromLine: transaction.startLine, throughLine: transaction.endLine) else { return false }
         let alert = NSAlert()
         alert.messageText = ui("删除这笔交易？", "Delete This Transaction?")
         alert.informativeText = ui("\(transaction.date) · \(transaction.summary)\n删除后账本和报表会立即更新。", "\(transaction.date) · \(transaction.summary)\nThe ledger and reports will update immediately.")
         alert.addButton(withTitle: ui("删除", "Delete"))
         alert.addButton(withTitle: ui("取消", "Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard alert.runModal() == .alertFirstButtonReturn else { return false }
         textView.textStorage?.replaceCharacters(in: range, with: "")
         textView.didChangeText()
         isDirty = true
@@ -4327,6 +4565,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         scheduleParse(immediately: true)
         scheduleAutosave()
         statusLabel.stringValue = ui("交易已删除", "Transaction deleted")
+        return true
     }
 
     private func dashboardMetric(title: String, value: String) -> NSAttributedString {
@@ -4354,8 +4593,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         paragraph.lineSpacing = 2
         paragraph.paragraphSpacing = 7
         paragraph.tabStops = [
-            NSTextTab(textAlignment: .left, location: 112),
-            NSTextTab(textAlignment: .right, location: 570)
+            NSTextTab(textAlignment: .left, location: 100),
+            NSTextTab(textAlignment: .left, location: 400),
+            NSTextTab(textAlignment: .right, location: 590)
         ]
         storage.setAttributes([
             .font: NSFont.systemFont(ofSize: 13, weight: .regular),

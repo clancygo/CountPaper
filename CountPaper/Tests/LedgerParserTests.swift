@@ -31,6 +31,10 @@ struct LedgerParserTests {
         expect(report.transactions == 2 && report.balances["资产:现金"] == Decimal(string: "967.50"), "大纲分录应正确计算余额")
         expect(report.journal.last?.date == "2026-08-02" && report.journal.last?.summary == "午餐", "日期标题与交易条目应被正确关联")
         expect(report.journal.last?.payee == "星巴克" && report.journal.last?.tags == ["咖啡", "日常"], "缩进元数据条目应被正确解析")
+        expect(ledgerTransactionDetail(report.journal.last!).contains("星巴克") && ledgerTransactionDetail(report.journal.last!).contains("#咖啡"), "最近交易应组合摘要、收款方和标签")
+        expect(filteredLedgerTransactions(report.journal, query: "星巴克").count == 1, "交易管理器应能按收款方或备注检索")
+        expect(filteredLedgerTransactions(report.journal, startDate: "2026-08-02", endDate: "2026-08-02", minimumAmount: 30, maximumAmount: 40, tag: "咖啡").count == 1, "交易管理器应组合日期、金额和标签筛选")
+        expect(filteredLedgerTransactions(report.journal, minimumAmount: 40, tag: "咖啡").isEmpty, "交易金额范围应排除不符合记录")
         expect(report.personalSummary(month: "2026-08").expenseTotal == Decimal(string: "32.50"), "报表应按新格式正确汇总支出")
         let english = sample
             .replacingOccurrences(of: "currency: CNY", with: "currency: USD")
