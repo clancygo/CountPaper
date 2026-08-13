@@ -40,6 +40,8 @@ struct LedgerParserTests {
         expect(report.personalSummary(month: "2026-08").expenseTotal == Decimal(string: "32.50"), "报表应按新格式正确汇总支出")
         let reconciliationText = reconciliationModeText(entries: report.journal, accounts: report.accounts)
         expect(reconciliationText.contains("2026-08-02 12:35") && reconciliationText.contains("资产:现金  967.50"), "逐笔对账应在线性累计后显示每笔交易后的资产余额")
+        expect(!reconciliationText.contains(" · 第") && !reconciliationText.contains(" · line"), "日记账与对账界面不应暴露源码行号")
+        expect(renderedReportBlockIndex(at: reconciliationText.range(of: "午餐")!.lowerBound.utf16Offset(in: reconciliationText), in: reconciliationText) == 1, "隐藏行号后仍应能按交易块定位原文")
         let revisedReport = LedgerParser.parse(sample.replacingOccurrences(of: "32.50", with: "42.50").replacingOccurrences(of: "-32.50", with: "-42.50"))
         expect(reconciliationModeText(entries: revisedReport.journal, accounts: revisedReport.accounts).contains("资产:现金  957.50"), "修改历史交易后全部后续余额应同步重算")
         let english = sample

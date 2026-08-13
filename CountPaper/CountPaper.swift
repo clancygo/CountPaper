@@ -510,15 +510,19 @@ func filteredLedgerTransactions(_ entries: [LedgerTransaction], query: String = 
 /// One chronological pass updates balances. Formatting every requested account
 /// after every transaction is inherently O(transactions × accounts), while the
 /// accounting work itself remains O(postings) and never rescans prior entries.
-func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], english: Bool = false) -> String {
-    let tracked = accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }.sorted()
-    guard !entries.isEmpty else { return english ? "No transactions" : "尚无交易" }
-    guard !tracked.isEmpty else { return english ? "No asset or liability accounts" : "尚未声明资产或负债账户" }
-    let ordered = entries.sorted {
+func chronologicallyOrderedTransactions(_ entries: [LedgerTransaction]) -> [LedgerTransaction] {
+    entries.sorted {
         if $0.date != $1.date { return $0.date < $1.date }
         if ($0.time ?? "") != ($1.time ?? "") { return ($0.time ?? "") < ($1.time ?? "") }
         return $0.startLine < $1.startLine
     }
+}
+
+func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], english: Bool = false) -> String {
+    let tracked = accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }.sorted()
+    guard !entries.isEmpty else { return english ? "No transactions" : "尚无交易" }
+    guard !tracked.isEmpty else { return english ? "No asset or liability accounts" : "尚未声明资产或负债账户" }
+    let ordered = chronologicallyOrderedTransactions(entries)
     var balances: [String: Decimal] = [:]
     balances.reserveCapacity(tracked.count)
     var chunks: [String] = []
@@ -527,7 +531,7 @@ func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], en
         for posting in entry.postings where isLedgerAccount(posting.account, .asset) || isLedgerAccount(posting.account, .liability) {
             balances[posting.account, default: .zero] += posting.amount
         }
-        let heading = "\(entry.date) \(entry.time ?? "--:--")  \(entry.summary)  · \(english ? "line" : "第") \(entry.startLine)\(english ? "" : " 行")"
+        let heading = "\(entry.date) \(entry.time ?? "--:--")  \(entry.summary)"
         let rows = tracked.map { account in "    \(account)  \(LedgerParser.format(displayBalance(balances[account, default: .zero], account: account)))" }
         chunks.append(([heading] + rows).joined(separator: "\n"))
     }
@@ -1016,20 +1020,13 @@ func updatedRecentPaths(_ paths: [String], adding path: String, limit: Int = 10)
     Array(([path] + paths.filter { $0 != path }).prefix(limit))
 }
 
-/// Finds the source ledger line named by the journal block at a rendered-report offset.
-/// The report is deliberately plain text, so this keeps its navigation affordance
-/// independent of a private view database.
-func journalSourceLine(atReportOffset offset: Int, in renderedText: String) -> Int? {
+/// Maps a click in a plain-text report to its transaction block without exposing
+/// implementation-only source line numbers in the interface.
+func renderedReportBlockIndex(at offset: Int, in renderedText: String) -> Int? {
     let source = renderedText as NSString
     guard offset >= 0, offset <= source.length else { return nil }
-    let separator = source.range(of: "\n\n", options: .backwards, range: NSRange(location: 0, length: offset))
-    let blockStart = separator.location == NSNotFound ? 0 : NSMaxRange(separator)
-    let block = source.substring(with: NSRange(location: blockStart, length: offset - blockStart))
-    let expression = try! NSRegularExpression(pattern: "第\\s*(\\d+)\\s*行")
-    let range = NSRange(block.startIndex..., in: block)
-    guard let match = expression.firstMatch(in: block, range: range),
-          let lineRange = Range(match.range(at: 1), in: block) else { return nil }
-    return Int(block[lineRange])
+    let prefix = source.substring(to: offset)
+    return prefix.components(separatedBy: "\n\n").count - 1
 }
 
 /// Resolves an account-tree line to a precise journal account query.  The tree
@@ -2198,6 +2195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private var latestReport = LedgerReport()
     private enum SidePanelMode { case overview, journal, reconciliation, accounts, reports }
     private var sidePanelMode: SidePanelMode = .overview
+    private var reportNavigationLines: [Int] = []
     private weak var sidePanelControl: NSSegmentedControl?
     private var sidebarButtons: [NSButton] = []
     private let documentNameLabel = NSTextField(labelWithString: "")
@@ -4500,11 +4498,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private func openJournalEntry(atReportOffset offset: Int) {
-        guard let line = journalSourceLine(atReportOffset: offset, in: reportView.string),
+        guard let block = renderedReportBlockIndex(at: offset, in: reportView.string),
+              reportNavigationLines.indices.contains(block) else { return }
+        let line = reportNavigationLines[block]
+        guard
               let range = ledgerLineRange(in: textView.string, line: line) else { return }
         textView.setSelectedRange(range)
         textView.scrollRangeToVisible(range)
-        statusLabel.stringValue = "已定位原文第 \(line) 行；右侧选中内容保持高亮"
+        statusLabel.stringValue = ui("已定位到原始交易", "Located the source transaction")
     }
 
     private func openAccountJournal(atReportOffset offset: Int) {
@@ -4574,11 +4575,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
         let output: String
         switch sidePanelMode {
-        case .overview: output = overviewText(for: report)
-        case .journal: output = journalText(for: report)
-        case .reconciliation: output = reconciliationModeText(entries: report.journal, accounts: report.accounts, english: appLanguage == .english)
-        case .accounts: output = accountTreeText(for: report)
-        case .reports: output = reportText(for: report)
+        case .overview:
+            reportNavigationLines = []
+            output = overviewText(for: report)
+        case .journal:
+            reportNavigationLines = Array(report.journal(matching: journalQuery, field: journalSearchFieldScope, status: journalStatus).reversed()).map(\.startLine)
+            output = journalText(for: report)
+        case .reconciliation:
+            let hasTrackedAccounts = report.accounts.contains { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }
+            reportNavigationLines = hasTrackedAccounts ? chronologicallyOrderedTransactions(report.journal).map(\.startLine) : []
+            output = reconciliationModeText(entries: report.journal, accounts: report.accounts, english: appLanguage == .english)
+        case .accounts:
+            reportNavigationLines = []
+            output = accountTreeText(for: report)
+        case .reports:
+            reportNavigationLines = []
+            output = reportText(for: report)
         }
         let reportAccessibilityLabel = switch sidePanelMode {
         case .overview: "账本概览"
@@ -5016,7 +5028,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         var output = ""
         for entry in entries.reversed() {
             let flag = entry.flag.map { " \($0)" } ?? ""
-            output += "\(entry.date)\(flag)  \(entry.summary)  · 第 \(entry.startLine) 行\n"
+            output += "\(entry.date) \(entry.time ?? "--:--")\(flag)  \(entry.summary)\n"
             if let payee = entry.payee { output += "    收款方：\(payee)\n" }
             if !entry.tags.isEmpty { output += "    标签：\(entry.tags.map { "#\($0)" }.joined(separator: " "))\n" }
             for link in entry.links { output += "    链接：\(link)\n" }
