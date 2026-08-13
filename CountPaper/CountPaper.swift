@@ -2,6 +2,82 @@ import Cocoa
 import CoreServices
 import UniformTypeIdentifiers
 
+enum CountPaperTheme {
+    private static func adaptive(light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+        }
+    }
+
+    static let canvas = adaptive(
+        light: NSColor(calibratedRed: 0.965, green: 0.957, blue: 0.941, alpha: 1),
+        dark: NSColor(calibratedRed: 0.090, green: 0.086, blue: 0.080, alpha: 1)
+    )
+    static let surface = adaptive(
+        light: NSColor(calibratedRed: 0.992, green: 0.988, blue: 0.976, alpha: 1),
+        dark: NSColor(calibratedRed: 0.135, green: 0.129, blue: 0.120, alpha: 1)
+    )
+    static let raisedSurface = adaptive(
+        light: NSColor(calibratedWhite: 1.0, alpha: 0.96),
+        dark: NSColor(calibratedRed: 0.165, green: 0.157, blue: 0.145, alpha: 1)
+    )
+    static let softSurface = adaptive(
+        light: NSColor(calibratedRed: 0.938, green: 0.925, blue: 0.900, alpha: 1),
+        dark: NSColor(calibratedRed: 0.190, green: 0.181, blue: 0.166, alpha: 1)
+    )
+    static let border = adaptive(
+        light: NSColor(calibratedRed: 0.790, green: 0.766, blue: 0.720, alpha: 0.58),
+        dark: NSColor(calibratedWhite: 0.36, alpha: 0.52)
+    )
+    static let ink = adaptive(light: NSColor(calibratedWhite: 0.12, alpha: 1), dark: NSColor(calibratedWhite: 0.93, alpha: 1))
+    static let secondaryInk = adaptive(light: NSColor(calibratedWhite: 0.38, alpha: 1), dark: NSColor(calibratedWhite: 0.66, alpha: 1))
+    static let blue = adaptive(
+        light: NSColor(calibratedRed: 0.20, green: 0.39, blue: 0.51, alpha: 1),
+        dark: NSColor(calibratedRed: 0.46, green: 0.68, blue: 0.80, alpha: 1)
+    )
+    static let blueSoft = adaptive(
+        light: NSColor(calibratedRed: 0.77, green: 0.85, blue: 0.89, alpha: 0.72),
+        dark: NSColor(calibratedRed: 0.20, green: 0.31, blue: 0.37, alpha: 0.82)
+    )
+    static let red = adaptive(light: NSColor(calibratedRed: 0.72, green: 0.31, blue: 0.27, alpha: 1), dark: NSColor(calibratedRed: 0.90, green: 0.48, blue: 0.43, alpha: 1))
+    static let gold = adaptive(light: NSColor(calibratedRed: 0.72, green: 0.54, blue: 0.18, alpha: 1), dark: NSColor(calibratedRed: 0.90, green: 0.70, blue: 0.31, alpha: 1))
+}
+
+final class CountPaperSurfaceView: NSView {
+    var fillColor: NSColor
+    var strokeColor: NSColor?
+    var radius: CGFloat
+    var hasSoftShadow: Bool
+
+    init(fill: NSColor, stroke: NSColor? = nil, radius: CGFloat = 0, shadow: Bool = false) {
+        self.fillColor = fill
+        self.strokeColor = stroke
+        self.radius = radius
+        self.hasSoftShadow = shadow
+        super.init(frame: .zero)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { nil }
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        layer?.backgroundColor = fillColor.cgColor
+        layer?.cornerRadius = radius
+        layer?.borderWidth = strokeColor == nil ? 0 : 0.6
+        layer?.borderColor = strokeColor?.cgColor
+        layer?.shadowColor = NSColor.black.cgColor
+        layer?.shadowOpacity = hasSoftShadow ? 0.07 : 0
+        layer?.shadowRadius = hasSoftShadow ? 12 : 0
+        layer?.shadowOffset = NSSize(width: 0, height: -3)
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        needsDisplay = true
+    }
+}
+
 enum CountPaperPreference {
     static let multipleAmounts = "preferences.multipleAmounts"
     static let multipleAmountsMigrated = "preferences.multipleAmountsMigrated"
@@ -1293,7 +1369,7 @@ final class PersonalReportChartView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.controlBackgroundColor.setFill()
+        CountPaperTheme.surface.setFill()
         bounds.fill()
         switch kind {
         case .trend: drawTrend()
@@ -1303,8 +1379,8 @@ final class PersonalReportChartView: NSView {
     }
 
     private func drawTrend() {
-        let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor]
-        let detailAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor]
+        let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: CountPaperTheme.ink]
+        let detailAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: CountPaperTheme.secondaryInk]
         ("收支趋势" as NSString).draw(at: NSPoint(x: 14, y: bounds.height - 24), withAttributes: titleAttributes)
         ("收入 / 支出 / 结余" as NSString).draw(at: NSPoint(x: 14, y: bounds.height - 39), withAttributes: detailAttributes)
         let series = Array(monthly.suffix(6))
@@ -1322,7 +1398,7 @@ final class PersonalReportChartView: NSView {
         let maximum = dataMaximum / 0.76
         let baseline = plot.midY
         let halfHeight = plot.height / 2
-        let gridColor = NSColor.separatorColor.withAlphaComponent(0.55)
+        let gridColor = CountPaperTheme.border.withAlphaComponent(0.55)
         for fraction in [0.0, 0.5, 1.0] {
             let y = plot.minY + plot.height * fraction
             gridColor.setStroke()
@@ -1332,9 +1408,9 @@ final class PersonalReportChartView: NSView {
             path.lineWidth = fraction == 0.5 ? 1.0 : 0.5
             path.stroke()
         }
-        let incomeColor = NSColor.systemGreen.blended(withFraction: 0.42, of: .controlBackgroundColor) ?? .systemGreen
-        let expenseColor = NSColor.systemRed.blended(withFraction: 0.42, of: .controlBackgroundColor) ?? .systemRed
-        let netColor = NSColor.systemBlue.blended(withFraction: 0.34, of: .controlBackgroundColor) ?? .systemBlue
+        let incomeColor = CountPaperTheme.blue
+        let expenseColor = CountPaperTheme.red
+        let netColor = CountPaperTheme.gold
         let step = plot.width / CGFloat(series.count)
         let barWidth = max(4, min(16, step * 0.20))
         let line = NSBezierPath()
@@ -1364,8 +1440,8 @@ final class PersonalReportChartView: NSView {
     }
 
     private func drawPieReport(title: String, values: [String: Decimal], stripPrefix: String) {
-        let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.labelColor]
-        let detailAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor]
+        let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: CountPaperTheme.ink]
+        let detailAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: CountPaperTheme.secondaryInk]
         (title as NSString).draw(at: NSPoint(x: 14, y: bounds.height - 24), withAttributes: titleAttributes)
         let entries = values.sorted { $0.value > $1.value }
         let total = entries.reduce(Decimal.zero) { $0 + $1.value }
@@ -1373,7 +1449,13 @@ final class PersonalReportChartView: NSView {
             ("当前筛选条件下暂无可统计数据" as NSString).draw(at: NSPoint(x: 14, y: bounds.midY - 6), withAttributes: detailAttributes)
             return
         }
-        let colors: [NSColor] = [.systemOrange, .systemPurple, .systemTeal, .systemPink, .systemBlue].map { $0.blended(withFraction: 0.40, of: .controlBackgroundColor) ?? $0 }
+        let colors: [NSColor] = [
+            CountPaperTheme.red,
+            CountPaperTheme.gold,
+            CountPaperTheme.blue,
+            CountPaperTheme.red.withAlphaComponent(0.66),
+            CountPaperTheme.blue.withAlphaComponent(0.62)
+        ]
         let diameter = min(112, bounds.height - 54, bounds.width * 0.35)
         let center = NSPoint(x: 28 + diameter / 2, y: bounds.midY - 4)
         let radius = diameter / 2
@@ -1935,14 +2017,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private func buildDashboard() -> NSView {
-        let container = NSView()
-        container.wantsLayer = true
-        container.layer?.backgroundColor = NSColor(calibratedWhite: 0.972, alpha: 1).cgColor
+        let container = CountPaperSurfaceView(fill: CountPaperTheme.canvas)
         container.layer?.masksToBounds = true
         let stack = NSStackView(frame: container.bounds)
         stack.orientation = .vertical
-        stack.alignment = .width; stack.spacing = 14
-        stack.edgeInsets = NSEdgeInsets(top: 30, left: 28, bottom: 28, right: 28)
+        stack.alignment = .width; stack.spacing = 18
+        stack.edgeInsets = NSEdgeInsets(top: 32, left: 28, bottom: 30, right: 28)
         stack.translatesAutoresizingMaskIntoConstraints = false
         // Attach the stack before activating constraints from its arranged
         // subviews to `container`; AppKit requires a common ancestor.
@@ -1954,33 +2034,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
 
-        dashboardTitleLabel.font = .systemFont(ofSize: 19, weight: .semibold)
+        dashboardTitleLabel.font = .systemFont(ofSize: 24, weight: .semibold)
+        dashboardTitleLabel.textColor = CountPaperTheme.ink
         dashboardTitleLabel.alignment = .left
         dashboardTitleLabel.widthAnchor.constraint(equalToConstant: 644).isActive = true
         stack.addArrangedSubview(dashboardTitleLabel)
-        let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.spacing = 10; statRow.distribution = .fillEqually
-        statRow.widthAnchor.constraint(equalToConstant: 644).isActive = true
-        [dashboardIncomeLabel, dashboardExpenseLabel, dashboardNetLabel].forEach { label in
+        let summaryCard = CountPaperSurfaceView(fill: CountPaperTheme.surface, stroke: CountPaperTheme.border, radius: 16, shadow: true)
+        summaryCard.widthAnchor.constraint(equalToConstant: 644).isActive = true
+        summaryCard.heightAnchor.constraint(equalToConstant: 92).isActive = true
+        let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.alignment = .centerY; statRow.spacing = 0
+        statRow.translatesAutoresizingMaskIntoConstraints = false
+        let metricLabels = [dashboardIncomeLabel, dashboardExpenseLabel, dashboardNetLabel]
+        for (index, label) in metricLabels.enumerated() {
             label.font = .systemFont(ofSize: 14, weight: .medium)
-            label.wantsLayer = true; label.layer?.cornerRadius = 12
-            label.layer?.backgroundColor = NSColor(calibratedWhite: 0.945, alpha: 1).cgColor
             label.alignment = .center
+            label.widthAnchor.constraint(equalToConstant: 214).isActive = true
             label.heightAnchor.constraint(equalToConstant: 70).isActive = true
             statRow.addArrangedSubview(label)
+            if index < metricLabels.count - 1 {
+                let separator = CountPaperSurfaceView(fill: CountPaperTheme.border)
+                separator.widthAnchor.constraint(equalToConstant: 1).isActive = true
+                separator.heightAnchor.constraint(equalToConstant: 42).isActive = true
+                statRow.addArrangedSubview(separator)
+            }
         }
-        stack.addArrangedSubview(statRow)
+        summaryCard.addSubview(statRow)
+        NSLayoutConstraint.activate([
+            statRow.centerXAnchor.constraint(equalTo: summaryCard.centerXAnchor),
+            statRow.centerYAnchor.constraint(equalTo: summaryCard.centerYAnchor)
+        ])
+        stack.addArrangedSubview(summaryCard)
 
-        let entryCard = NSView(); entryCard.wantsLayer = true; entryCard.layer?.cornerRadius = 12
-        entryCard.layer?.backgroundColor = NSColor(calibratedWhite: 1, alpha: 1).cgColor
-        entryCard.layer?.borderWidth = 0.5; entryCard.layer?.borderColor = NSColor(calibratedWhite: 0.82, alpha: 1).cgColor
+        let entryCard = CountPaperSurfaceView(fill: CountPaperTheme.raisedSurface, stroke: CountPaperTheme.border, radius: 16, shadow: true)
         entryCard.widthAnchor.constraint(equalToConstant: 644).isActive = true
         let entry = NSStackView(); entry.orientation = .vertical; entry.alignment = .leading; entry.spacing = 8
         entry.edgeInsets = NSEdgeInsets(top: 16, left: 18, bottom: 16, right: 18); entry.translatesAutoresizingMaskIntoConstraints = false
-        let entryTitle = NSTextField(labelWithString: ui("记账", "Record")); entryTitle.font = .systemFont(ofSize: 15, weight: .semibold)
+        let entryTitle = NSTextField(labelWithString: ui("记一笔", "New Entry")); entryTitle.font = .systemFont(ofSize: 16, weight: .semibold); entryTitle.textColor = CountPaperTheme.ink
         let entryHeader = NSStackView(); entryHeader.orientation = .horizontal; entryHeader.alignment = .centerY
         entryHeader.widthAnchor.constraint(equalToConstant: 608).isActive = true
         entryHeader.addArrangedSubview(entryTitle); entryHeader.addArrangedSubview(NSView())
-        inlineKindControl.selectedSegment = 0; inlineKindControl.setAccessibilityLabel(ui("交易类型", "Transaction type")); inlineKindControl.widthAnchor.constraint(equalToConstant: 148).isActive = true
+        inlineKindControl.selectedSegment = 0; inlineKindControl.selectedSegmentBezelColor = CountPaperTheme.blue; inlineKindControl.setAccessibilityLabel(ui("交易类型", "Transaction type")); inlineKindControl.widthAnchor.constraint(equalToConstant: 148).isActive = true
         entryHeader.addArrangedSubview(inlineKindControl); entry.addArrangedSubview(entryHeader)
         let firstRow = NSStackView(); firstRow.orientation = .horizontal; firstRow.spacing = 8
         inlineAmountField.placeholderString = ui("金额，如 32 57", "Amount, e.g. 32 57"); inlineAmountField.setAccessibilityLabel(ui("金额，可输入多个数字", "Amount; multiple values supported")); inlineAmountField.widthAnchor.constraint(equalToConstant: 138).isActive = true
@@ -2005,7 +2098,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let actionRow = NSStackView(); actionRow.orientation = .horizontal; actionRow.alignment = .centerY; actionRow.spacing = 8
         actionRow.widthAnchor.constraint(equalToConstant: 608).isActive = true
         inlineSuggestionPicker.widthAnchor.constraint(equalToConstant: 238).isActive = true; inlineSuggestionPicker.setAccessibilityLabel(ui("最近交易模板", "Recent transaction templates"))
-        let save = NSButton(title: ui("记入账本", "Record"), target: self, action: #selector(recordInlineTransaction(_:))); save.bezelStyle = .rounded; save.contentTintColor = .controlAccentColor; save.widthAnchor.constraint(equalToConstant: 96).isActive = true; save.keyEquivalent = "\r"
+        let save = NSButton(title: ui("记入账本", "Record"), target: self, action: #selector(recordInlineTransaction(_:)))
+        stylePrimaryButton(save)
+        save.widthAnchor.constraint(equalToConstant: 96).isActive = true
+        save.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        save.keyEquivalent = "\r"
         actionRow.addArrangedSubview(inlineSuggestionPicker); actionRow.addArrangedSubview(NSView()); actionRow.addArrangedSubview(save); entry.addArrangedSubview(actionRow)
         entryCard.addSubview(entry)
         NSLayoutConstraint.activate([
@@ -2016,24 +2113,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         stack.addArrangedSubview(entryCard)
 
         let recentTitle = NSTextField(labelWithString: ui("最近交易", "Recent Transactions"))
-        recentTitle.font = .systemFont(ofSize: 14, weight: .semibold)
+        recentTitle.font = .systemFont(ofSize: 15, weight: .semibold); recentTitle.textColor = CountPaperTheme.ink
         let recentHeader = NSStackView(); recentHeader.orientation = .horizontal; recentHeader.alignment = .centerY
         recentHeader.widthAnchor.constraint(equalToConstant: 644).isActive = true
         recentHeader.addArrangedSubview(recentTitle)
         let openTextFile = NSButton(title: ui("编辑文本", "Edit Text"), target: self, action: #selector(openLedgerInTextEditor(_:)))
-        openTextFile.bezelStyle = .texturedRounded
+        openTextFile.bezelStyle = .inline
+        openTextFile.contentTintColor = CountPaperTheme.secondaryInk
         openTextFile.toolTip = ui("使用系统默认或“设置”中选择的 App 打开当前账本文件", "Open the current ledger in macOS's default app or the app selected in Settings")
         openTextFile.setAccessibilityLabel(ui("用外部 App 打开文本文件", "Open text file in external app"))
         recentHeader.addArrangedSubview(NSView())
         recentHeader.addArrangedSubview(openTextFile)
         stack.addArrangedSubview(recentHeader)
         let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.borderType = .noBorder
-        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 10; scroll.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 14; scroll.layer?.backgroundColor = CountPaperTheme.surface.cgColor; scroll.layer?.borderWidth = 0.6; scroll.layer?.borderColor = CountPaperTheme.border.cgColor
         scroll.widthAnchor.constraint(equalToConstant: 644).isActive = true
         dashboardRecentView.isEditable = false; dashboardRecentView.isSelectable = true
-        dashboardRecentView.textColor = .labelColor; dashboardRecentView.backgroundColor = .clear
+        dashboardRecentView.textColor = CountPaperTheme.ink; dashboardRecentView.backgroundColor = .clear
         dashboardRecentView.font = .systemFont(ofSize: 13, weight: .regular)
-        dashboardRecentView.textContainerInset = NSSize(width: 2, height: 4)
+        dashboardRecentView.textContainerInset = NSSize(width: 16, height: 12)
         dashboardRecentView.setAccessibilityLabel(ui("最近交易", "Recent transactions"))
         scroll.documentView = dashboardRecentView
         scroll.heightAnchor.constraint(equalToConstant: 142).isActive = true
@@ -2053,9 +2151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         window.center(); window.delegate = self
         (window as? CountPaperWindow)?.onCommandW = { [weak self] in self?.hideMainWindow(nil) }
 
-        let root = NSView()
-        root.wantsLayer = true
-        root.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        let root = CountPaperSurfaceView(fill: CountPaperTheme.canvas)
         let shell = NSStackView()
         shell.orientation = .horizontal
         shell.spacing = 0
@@ -2063,8 +2159,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
         let sidebar = NSVisualEffectView()
         sidebar.material = .sidebar
-        sidebar.blendingMode = .behindWindow
+        sidebar.blendingMode = .withinWindow
         sidebar.state = .active
+        sidebar.wantsLayer = true
+        sidebar.layer?.borderWidth = 0.5
+        sidebar.layer?.borderColor = CountPaperTheme.border.cgColor
         sidebar.translatesAutoresizingMaskIntoConstraints = false
         sidebar.widthAnchor.constraint(equalToConstant: 184).isActive = true
         let sidebarStack = NSStackView()
@@ -2074,8 +2173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         sidebarStack.edgeInsets = NSEdgeInsets(top: 48, left: 12, bottom: 14, right: 12)
         sidebarStack.translatesAutoresizingMaskIntoConstraints = false
         let brand = NSTextField(labelWithString: "CountPaper")
-        brand.font = .systemFont(ofSize: 19, weight: .semibold)
-        brand.textColor = .labelColor
+        brand.font = .systemFont(ofSize: 20, weight: .semibold)
+        brand.textColor = CountPaperTheme.ink
         sidebarStack.addArrangedSubview(brand)
         sidebarStack.setCustomSpacing(18, after: brand)
         sidebarButtons = [
@@ -2118,9 +2217,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         bar.spacing = 8
         bar.edgeInsets = NSEdgeInsets(top: 8, left: 16, bottom: 8, right: 14)
         bar.wantsLayer = true
-        bar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        bar.layer?.backgroundColor = CountPaperTheme.canvas.cgColor
         documentNameLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        documentNameLabel.textColor = .labelColor
+        documentNameLabel.textColor = CountPaperTheme.ink
         documentNameLabel.lineBreakMode = .byTruncatingMiddle
         documentNameLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         let spacer = NSView()
@@ -2131,17 +2230,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             (ui("打开", "Open"), "folder", #selector(openDocument(_:))),
             (ui("保存", "Save"), "square.and.arrow.down", #selector(saveDocument(_:)))
         ] {
-            let button = NSButton(title: name, target: self, action: action)
-            button.bezelStyle = .texturedRounded
+            let button = NSButton(title: "", target: self, action: action)
+            button.bezelStyle = .inline
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)
-            button.imagePosition = .imageLeading
+            button.imagePosition = .imageOnly
+            button.contentTintColor = CountPaperTheme.secondaryInk
+            button.toolTip = name
+            button.setAccessibilityLabel(name)
+            button.widthAnchor.constraint(equalToConstant: 30).isActive = true
             bar.addArrangedSubview(button)
         }
         let recordButton = NSButton(title: ui("记一笔", "Record"), target: self, action: #selector(recordTransaction(_:)))
-        recordButton.bezelStyle = .texturedRounded
+        stylePrimaryButton(recordButton)
+        recordButton.widthAnchor.constraint(equalToConstant: 76).isActive = true
+        recordButton.heightAnchor.constraint(equalToConstant: 28).isActive = true
         recordButton.keyEquivalent = "e"
         recordButton.keyEquivalentModifierMask = [.command]
-        recordButton.contentTintColor = .controlAccentColor
         recordButton.image = NSImage(systemSymbolName: "plus.circle", accessibilityDescription: recordButton.title)
         recordButton.imagePosition = .imageLeading
         recordButton.setAccessibilityLabel(ui("记一笔交易", "Record a transaction"))
@@ -2154,9 +2258,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         tabBar.spacing = 6
         tabBar.edgeInsets = NSEdgeInsets(top: 4, left: 12, bottom: 5, right: 12)
         tabBar.wantsLayer = true
-        tabBar.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        tabBar.layer?.backgroundColor = CountPaperTheme.canvas.cgColor
         ledgerTabControl.trackingMode = .selectOne
-        ledgerTabControl.segmentStyle = .texturedRounded
+        ledgerTabControl.segmentStyle = .capsule
+        ledgerTabControl.selectedSegmentBezelColor = CountPaperTheme.blue
         ledgerTabControl.target = self
         ledgerTabControl.action = #selector(changeLedgerTab(_:))
         ledgerTabControl.setAccessibilityLabel(ui("打开的账本", "Open ledgers"))
@@ -2206,9 +2311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         journalStatusFilter.isHidden = true
         journalStatusFilter.widthAnchor.constraint(equalToConstant: 104).isActive = true
 
-        let body = NSView()
-        body.wantsLayer = true
-        body.layer?.backgroundColor = NSColor.controlBackgroundColor.cgColor
+        let body = CountPaperSurfaceView(fill: CountPaperTheme.canvas)
         // One explicit content host is more reliable than a horizontal stack
         // when whole pages are swapped in and out of view.
         let contentHost = NSView()
@@ -2216,15 +2319,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let dashboard = buildDashboard()
         dashboardContainer = dashboard
         dashboard.translatesAutoresizingMaskIntoConstraints = false
-        let reportContainer = NSView()
+        let reportContainer = CountPaperSurfaceView(fill: CountPaperTheme.surface, stroke: CountPaperTheme.border, radius: 16)
         inspectorContainer = reportContainer
         reportContainer.translatesAutoresizingMaskIntoConstraints = false
-        reportContainer.wantsLayer = true
-        reportContainer.layer?.cornerRadius = 10
-        reportContainer.layer?.borderWidth = 0.5
-        reportContainer.layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.45).cgColor
-        reportContainer.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
-        reportContainer.layer?.masksToBounds = true
         let reportStack = NSStackView(frame: reportContainer.bounds)
         reportStack.orientation = .vertical
         reportStack.alignment = .leading
@@ -2236,8 +2333,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         inspectorHeader.spacing = 10
         inspectorHeader.edgeInsets = NSEdgeInsets(top: 16, left: 20, bottom: 14, right: 20)
         inspectorHeader.wantsLayer = true
-        inspectorHeader.layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.45).cgColor
-        inspectorTitleLabel.font = .systemFont(ofSize: 18, weight: .semibold)
+        inspectorHeader.layer?.backgroundColor = CountPaperTheme.surface.cgColor
+        inspectorTitleLabel.font = .systemFont(ofSize: 22, weight: .semibold)
+        inspectorTitleLabel.textColor = CountPaperTheme.ink
         inspectorTitleLabel.alignment = .left
         inspectorTitleLabel.stringValue = ui("概览", "Overview")
         inspectorHeader.addArrangedSubview(inspectorTitleLabel)
@@ -2266,6 +2364,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         periodPicker.setAccessibilityLabel(ui("报表时间", "Report period")); periodPicker.widthAnchor.constraint(equalToConstant: 130).isActive = true
         reportKindControl.target = self; reportKindControl.action = #selector(changeReportKind(_:))
         reportKindControl.selectedSegment = 0; reportKindControl.setAccessibilityLabel(ui("报表类型", "Report kind"))
+        reportKindControl.selectedSegmentBezelColor = CountPaperTheme.blue
         reportKindControl.widthAnchor.constraint(equalToConstant: 156).isActive = true
         reportTagPicker.target = self; reportTagPicker.action = #selector(changeReportTag(_:))
         reportTagPicker.setAccessibilityLabel(ui("报表标签筛选", "Report tag filter")); reportTagPicker.widthAnchor.constraint(equalToConstant: 138).isActive = true
@@ -2291,10 +2390,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         reportView.textContainer?.widthTracksTextView = true
         reportView.textContainer?.containerSize = NSSize(width: 360, height: CGFloat.greatestFiniteMagnitude)
         reportView.textContainerInset = NSSize(width: 18, height: 16)
-        reportView.textColor = .labelColor
-        reportView.backgroundColor = .textBackgroundColor
+        reportView.textColor = CountPaperTheme.ink
+        reportView.backgroundColor = CountPaperTheme.surface
         reportView.isSelectable = true
-        reportView.selectedTextAttributes = [.backgroundColor: NSColor(calibratedRed: 0.22, green: 0.55, blue: 0.93, alpha: 0.82), .foregroundColor: NSColor.white]
+        reportView.selectedTextAttributes = [.backgroundColor: CountPaperTheme.blue, .foregroundColor: NSColor.white]
         reportView.setAccessibilityLabel("账本概览")
         reportView.onReportClick = { [weak self] offset in self?.handleReportClick(at: offset) }
         reportView.isEditable = false; reportView.delegate = self; reportView.font = .systemFont(ofSize: 14, weight: .regular); reportScrollView.documentView = reportView; reportStack.addArrangedSubview(reportScrollView); reportContainer.addSubview(reportStack)
@@ -2310,10 +2409,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         contentHost.addSubview(reportContainer)
         body.addSubview(contentHost)
         NSLayoutConstraint.activate([
-            contentHost.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 12),
-            contentHost.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -12),
-            contentHost.topAnchor.constraint(equalTo: body.topAnchor, constant: 12),
-            contentHost.bottomAnchor.constraint(equalTo: body.bottomAnchor, constant: -12),
+            contentHost.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 18),
+            contentHost.trailingAnchor.constraint(equalTo: body.trailingAnchor, constant: -18),
+            contentHost.topAnchor.constraint(equalTo: body.topAnchor, constant: 14),
+            contentHost.bottomAnchor.constraint(equalTo: body.bottomAnchor, constant: -18),
             dashboard.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor),
             dashboard.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
             dashboard.topAnchor.constraint(equalTo: contentHost.topAnchor),
@@ -2355,7 +2454,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         button.tag = tag
         button.isBordered = false
         button.alignment = .left
-        button.font = .systemFont(ofSize: 14, weight: .medium)
+        button.font = .systemFont(ofSize: 13.5, weight: .medium)
         let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium).applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
         let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(configuration)
         // Make the symbol an explicit neutral image. Template images inside an
@@ -2367,9 +2466,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         button.imageHugsTitle = true
         button.imageScaling = .scaleProportionallyDown
         button.wantsLayer = true
-        button.layer?.cornerRadius = 7
+        button.layer?.cornerRadius = 9
         button.setAccessibilityLabel(title)
         return button
+    }
+
+    private func stylePrimaryButton(_ button: NSButton) {
+        button.isBordered = false
+        button.wantsLayer = true
+        button.layer?.backgroundColor = CountPaperTheme.blue.cgColor
+        button.layer?.cornerRadius = 7
+        button.contentTintColor = .white
+        button.font = .systemFont(ofSize: 13, weight: .semibold)
+        button.attributedTitle = NSAttributedString(string: button.title, attributes: [
+            .font: button.font as Any,
+            .foregroundColor: NSColor.white
+        ])
     }
 
     private func updateSidebarSelection() {
@@ -2377,9 +2489,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             let selected = button.tag == sidebarModeIndex
             // Keep the glyph neutral. AppKit otherwise applies its own tinted
             // selected-image treatment, which reads like a separate square icon.
-            button.layer?.backgroundColor = selected ? NSColor.controlAccentColor.withAlphaComponent(0.10).cgColor : NSColor.clear.cgColor
-            button.contentTintColor = .labelColor
-            button.font = .systemFont(ofSize: 14, weight: selected ? .semibold : .medium)
+            button.layer?.backgroundColor = selected ? CountPaperTheme.blueSoft.cgColor : NSColor.clear.cgColor
+            button.contentTintColor = selected ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
+            button.font = .systemFont(ofSize: 13.5, weight: selected ? .semibold : .medium)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.alignment = .left
+            button.attributedTitle = NSAttributedString(string: button.title, attributes: [
+                .font: button.font as Any,
+                .foregroundColor: selected ? CountPaperTheme.blue : CountPaperTheme.ink,
+                .paragraphStyle: paragraph
+            ])
         }
     }
 
@@ -3988,12 +4107,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         paragraph.lineSpacing = 3
         let result = NSMutableAttributedString(string: "\(title)\n", attributes: [
             .font: NSFont.systemFont(ofSize: 12, weight: .medium),
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: CountPaperTheme.secondaryInk,
             .paragraphStyle: paragraph
         ])
         result.append(NSAttributedString(string: value, attributes: [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 18, weight: .semibold),
-            .foregroundColor: NSColor.labelColor,
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 20, weight: .semibold),
+            .foregroundColor: CountPaperTheme.ink,
             .paragraphStyle: paragraph
         ]))
         return result
@@ -4008,11 +4127,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         paragraph.paragraphSpacing = 7
         paragraph.tabStops = [
             NSTextTab(textAlignment: .left, location: 112),
-            NSTextTab(textAlignment: .right, location: 618)
+            NSTextTab(textAlignment: .right, location: 570)
         ]
         storage.setAttributes([
             .font: NSFont.systemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: CountPaperTheme.ink,
             .paragraphStyle: paragraph
         ], range: fullRange)
         let source = storage.string as NSString
@@ -4022,7 +4141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             let line = source.substring(with: lineRange) as NSString
             let firstTab = line.range(of: "\t")
             if firstTab.location != NSNotFound {
-                storage.addAttributes([.foregroundColor: NSColor.secondaryLabelColor, .font: NSFont.systemFont(ofSize: 12)], range: NSRange(location: lineRange.location, length: firstTab.location))
+                storage.addAttributes([.foregroundColor: CountPaperTheme.secondaryInk, .font: NSFont.systemFont(ofSize: 12)], range: NSRange(location: lineRange.location, length: firstTab.location))
                 let lastTab = line.range(of: "\t", options: .backwards)
                 if lastTab.location != NSNotFound {
                     let amountRange = NSRange(location: lineRange.location + NSMaxRange(lastTab), length: max(0, lineRange.length - NSMaxRange(lastTab)))
