@@ -1878,6 +1878,32 @@ final class AccountBalanceLabelBinder: NSObject {
     }
 }
 
+final class SingleDateCalendarBinder: NSObject {
+    let picker: NSDatePicker
+    let selectedDateLabel: NSTextField
+    let english: Bool
+
+    init(picker: NSDatePicker, selectedDateLabel: NSTextField, english: Bool) {
+        self.picker = picker; self.selectedDateLabel = selectedDateLabel; self.english = english
+        super.init(); refreshLabel()
+    }
+
+    @objc func selectShortcut(_ sender: NSSegmentedControl) {
+        let calendar = Calendar.current
+        picker.dateValue = sender.selectedSegment == 0 ? Date() : (calendar.date(byAdding: .day, value: -1, to: Date()) ?? Date())
+        refreshLabel()
+    }
+
+    @objc func chooseDate(_ sender: NSDatePicker) { refreshLabel() }
+
+    private func refreshLabel() {
+        let formatter = DateFormatter()
+        formatter.locale = english ? Locale(identifier: "en_US") : Locale(identifier: "zh_Hans_CN")
+        formatter.setLocalizedDateFormatFromTemplate(english ? "EEEE, MMMMd" : "yMMMMdEEEE")
+        selectedDateLabel.stringValue = formatter.string(from: picker.dateValue)
+    }
+}
+
 /// CountPaper retains a live source document in memory. Command-W shelves the
 /// window instead of closing the last native window, avoiding the termination
 /// path while keeping the requested shortcut behaviour.
@@ -5238,11 +5264,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         picker.datePickerElements = .yearMonthDay
         picker.dateValue = inlineDatePicker.dateValue
         picker.setAccessibilityLabel(ui("选择记账日期", "Choose transaction date"))
-        picker.frame = NSRect(x: 0, y: 0, width: 240, height: 170)
+        let content = CountPaperSurfaceView(fill: CountPaperTheme.canvas, radius: 12)
+        content.frame = NSRect(x: 0, y: 0, width: 298, height: 266)
+        let dateLabel = NSTextField(labelWithString: "")
+        dateLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        dateLabel.textColor = CountPaperTheme.ink
+        dateLabel.alignment = .center
+        dateLabel.frame = NSRect(x: 12, y: 230, width: 274, height: 24)
+        let shortcuts = NSSegmentedControl(labels: [ui("今天", "Today"), ui("昨天", "Yesterday")], trackingMode: .momentary, target: nil, action: nil)
+        shortcuts.selectedSegmentBezelColor = CountPaperTheme.blue
+        shortcuts.setAccessibilityLabel(ui("日期快捷选择", "Date shortcuts"))
+        shortcuts.frame = NSRect(x: 49, y: 196, width: 200, height: 26)
+        picker.frame = NSRect(x: 18, y: 14, width: 262, height: 174)
+        let binder = SingleDateCalendarBinder(picker: picker, selectedDateLabel: dateLabel, english: appLanguage == .english)
+        shortcuts.target = binder; shortcuts.action = #selector(SingleDateCalendarBinder.selectShortcut(_:))
+        picker.target = binder; picker.action = #selector(SingleDateCalendarBinder.chooseDate(_:))
+        content.addSubview(dateLabel); content.addSubview(shortcuts); content.addSubview(picker)
         let alert = NSAlert()
         alert.messageText = ui("选择日期", "Choose Date")
-        alert.informativeText = ui("“今天”和“昨天”可直接在记账栏选择。", "Use the Today and Yesterday buttons in the form for the usual choices.")
-        alert.accessoryView = picker
+        alert.informativeText = ui("选择一笔交易要归属的日期。", "Choose the date this transaction belongs to.")
+        alert.accessoryView = content
         alert.addButton(withTitle: ui("确定", "Done"))
         alert.addButton(withTitle: ui("取消", "Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
