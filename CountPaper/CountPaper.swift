@@ -3119,12 +3119,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         button.isBordered = false
         button.alignment = .left
         button.font = .systemFont(ofSize: 13.5, weight: .medium)
-        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-        let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(configuration)
-        // Sidebar glyphs must remain one-color symbols. Palette rendering made
-        // chart.bar.xaxis look selected even when another row was active.
-        icon?.isTemplate = true
-        button.image = icon
+        button.image = sidebarSymbolImage(named: symbol, description: title)
+        button.alternateImage = nil
         button.imagePosition = .imageLeading
         button.imageHugsTitle = true
         button.imageScaling = .scaleProportionallyDown
@@ -3132,6 +3128,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         button.layer?.cornerRadius = 9
         button.setAccessibilityLabel(title)
         return button
+    }
+
+    /// SF Symbols such as chart.bar.xaxis have a multicolor default appearance.
+    /// Always request their monochrome form before placing them in navigation;
+    /// the button's tint is then the only source of icon colour.
+    private func sidebarSymbolImage(named symbol: String, description: String) -> NSImage? {
+        let base = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+        let monochrome = base.applying(NSImage.SymbolConfiguration.preferringMonochrome())
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)?.withSymbolConfiguration(monochrome)
+        image?.isTemplate = true
+        return image
     }
 
     private func stylePrimaryButton(_ button: NSButton) {
@@ -3168,12 +3175,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func updateSidebarSelection() {
         for button in sidebarButtons {
             let selected = button.tag == sidebarModeIndex
-            // Recreate the template symbol during every selection update so no
-            // palette or cached selected-state layer can leak into another row.
-            let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
-            let icon = NSImage(systemSymbolName: button.identifier?.rawValue ?? "circle", accessibilityDescription: button.title)?.withSymbolConfiguration(configuration)
-            icon?.isTemplate = true
-            button.image = icon
+            // Recreate a monochrome template on every update. This clears any
+            // cached multicolor rendering left by AppKit's symbol image cache.
+            button.image = sidebarSymbolImage(named: button.identifier?.rawValue ?? "circle", description: button.title)
+            button.alternateImage = nil
             button.layer?.backgroundColor = selected ? CountPaperTheme.blueSoft.cgColor : NSColor.clear.cgColor
             button.contentTintColor = selected ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
             button.font = .systemFont(ofSize: 13.5, weight: selected ? .semibold : .medium)
