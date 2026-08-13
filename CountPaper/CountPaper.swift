@@ -3119,15 +3119,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func makeSidebarButton(title: String, symbol: String, tag: Int) -> NSButton {
         let button = NSButton(title: title, target: self, action: #selector(changeSidebarMode(_:)))
         button.tag = tag
+        button.identifier = NSUserInterfaceItemIdentifier(symbol)
         button.isBordered = false
         button.alignment = .left
         button.font = .systemFont(ofSize: 13.5, weight: .medium)
-        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium).applying(NSImage.SymbolConfiguration(paletteColors: [.labelColor]))
+        let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
         let icon = NSImage(systemSymbolName: symbol, accessibilityDescription: title)?.withSymbolConfiguration(configuration)
-        // Make the symbol an explicit neutral image. Template images inside an
-        // NSButton are recoloured by AppKit after selection changes, which was
-        // leaving the previously selected icon blue.
-        icon?.isTemplate = false
+        // Sidebar glyphs must remain one-color symbols. Palette rendering made
+        // chart.bar.xaxis look selected even when another row was active.
+        icon?.isTemplate = true
         button.image = icon
         button.imagePosition = .imageLeading
         button.imageHugsTitle = true
@@ -3172,8 +3172,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private func updateSidebarSelection() {
         for button in sidebarButtons {
             let selected = button.tag == sidebarModeIndex
-            // Keep the glyph neutral. AppKit otherwise applies its own tinted
-            // selected-image treatment, which reads like a separate square icon.
+            // Recreate the template symbol during every selection update so no
+            // palette or cached selected-state layer can leak into another row.
+            let configuration = NSImage.SymbolConfiguration(pointSize: 15, weight: .medium)
+            let icon = NSImage(systemSymbolName: button.identifier?.rawValue ?? "circle", accessibilityDescription: button.title)?.withSymbolConfiguration(configuration)
+            icon?.isTemplate = true
+            button.image = icon
             button.layer?.backgroundColor = selected ? CountPaperTheme.blueSoft.cgColor : NSColor.clear.cgColor
             button.contentTintColor = selected ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
             button.font = .systemFont(ofSize: 13.5, weight: selected ? .semibold : .medium)
