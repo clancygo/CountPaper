@@ -1,6 +1,6 @@
 # CountPaper
 
-English · [简体中文](README.md)
+English · [Chinese](README.md)
 
 CountPaper is a plain-text personal ledger for macOS.
 
@@ -37,17 +37,18 @@ format: countpaper/0.2
 currency: CNY
 ---
 
-@账户
-- 资产:现金
-- 资产:银行卡
-- 收入:工资
-- 费用:餐饮
+@accounts
+- Assets:Cash
+- Assets:Bank
+- Equity:BalanceAdjustment
+- Income:Salary
+- Expenses:Dining
 
 # 2026-08-12
 - Lunch
   - time: 12:35
-  - 费用:餐饮  32.50
-  - 资产:现金  -32.50
+  - Expenses:Dining  32.50
+  - Assets:Cash  -32.50
 ```
 
 The file stays ordinary, readable text while CountPaper can validate, search, and report on it. See the complete [CountPaper plain-text format 0.2](CountPaper/FORMAT-0.2.md).
@@ -73,7 +74,7 @@ This is a local development build, not yet a signed, notarized, or Mac App Store
 
 ## Current scope
 
-CountPaper focuses on daily personal accounting: Chinese accounts, income, expenses, transfers, balances, and multidimensional reports.
+CountPaper focuses on daily personal accounting: accounts, income, expenses, transfers, balances, and multidimensional reports.
 
 It does not currently include investments, prices, holdings, net worth, multiple currencies, imports, OCR, attachments, collaboration, proprietary sync, or user accounts.
 

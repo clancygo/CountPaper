@@ -527,6 +527,37 @@ func ledgerAccountDisplayName(_ account: String) -> String {
     return components.count > 1 ? components.dropFirst().joined(separator: " · ") : account
 }
 
+func isInternalBalanceAdjustmentAccount(_ account: String) -> Bool {
+    account == "权益:余额调整" || account == "Equity:BalanceAdjustment"
+}
+
+/// Adds a declaration without interpreting or reformatting the rest of a
+/// plain-text ledger. The internal offset account is only created on demand.
+func ledgerSourceAddingAccountDeclaration(_ raw: String, account: String) -> String? {
+    guard !raw.components(separatedBy: .newlines).contains(where: { $0.trimmingCharacters(in: .whitespaces) == "- \(account)" }) else { return raw }
+    let newline = raw.contains("\r\n") ? "\r\n" : "\n"
+    let lines = raw.components(separatedBy: newline)
+    var offset = 0
+    var inAccountSection = false
+    var lastAccountEnd: Int?
+    for (index, line) in lines.enumerated() {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let lineEnd = offset + line.utf16.count + (index < lines.count - 1 ? newline.utf16.count : 0)
+        if trimmed == "@账户" || trimmed == "@accounts" { inAccountSection = true }
+        else if line.hasPrefix("# ") { inAccountSection = false }
+        if inAccountSection, line.hasPrefix("- ") { lastAccountEnd = lineEnd }
+        offset = lineEnd
+    }
+    guard let insertionOffset = lastAccountEnd else { return nil }
+    let updated = NSMutableString(string: raw)
+    updated.insert("- \(account)\(newline)", at: insertionOffset)
+    return updated as String
+}
+
+func balanceAdjustmentCounterpart(for account: String) -> String {
+    account.hasPrefix("Assets:") || account.hasPrefix("Liabilities:") ? "Equity:BalanceAdjustment" : "权益:余额调整"
+}
+
 func ledgerTransactionUIInfo(_ entry: LedgerTransaction) -> LedgerTransactionUIInfo {
     let amount = ledgerTransactionDisplayAmount(entry)
     if let category = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) {
@@ -1277,8 +1308,8 @@ enum LedgerParser {
                 continue
             }
             if trimmed.isEmpty || trimmed.hasPrefix(";") { continue }
-            if trimmed == "@账户" {
-                guard !sawAccountMarker, transactionStart == nil, currentDate == nil else { report.diagnostics.append("错误：第 \(lineNumber) 行 @账户 只能在正文开始处出现一次"); continue }
+            if trimmed == "@账户" || trimmed == "@accounts" {
+                guard !sawAccountMarker, transactionStart == nil, currentDate == nil else { report.diagnostics.append("错误：第 \(lineNumber) 行账户区标记只能在正文开始处出现一次"); continue }
                 sawAccountMarker = true
                 inAccountSection = true
                 continue
@@ -1351,8 +1382,8 @@ enum LedgerParser {
         if !sawOpeningFence || !sawClosingFence { report.diagnostics.insert("错误：缺少完整的 Markdown 文件头（---）", at: 0) }
         if !text.contains("format: countpaper/0.2") { report.diagnostics.insert("错误：缺少“format: countpaper/0.2”", at: min(1, report.diagnostics.count)) }
         if text.range(of: "(?m)^currency: [A-Z]{3}$", options: .regularExpression) == nil { report.diagnostics.insert("错误：缺少三位大写 currency: 代码", at: min(2, report.diagnostics.count)) }
-        if !sawAccountMarker { report.diagnostics.append("错误：缺少账户区标记“@账户”") }
-        if accounts.isEmpty { report.diagnostics.append("错误：至少在 @账户 下声明一个账户") }
+        if !sawAccountMarker { report.diagnostics.append("错误：缺少账户区标记“@账户”或“@accounts”") }
+        if accounts.isEmpty { report.diagnostics.append("错误：至少在账户区标记下声明一个账户") }
         report.accounts = accounts.sorted()
         return report
     }
@@ -1817,6 +1848,23 @@ final class DateRangeSelectionBinder: NSObject {
         endLabel.stringValue = formatter.string(from: endDate)
         startLabel.textColor = mode.selectedSegment == 0 ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
         endLabel.textColor = mode.selectedSegment == 1 ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
+    }
+}
+
+final class AccountBalanceLabelBinder: NSObject {
+    let picker: NSPopUpButton
+    let label: NSTextField
+    let report: LedgerReport
+    let english: Bool
+
+    init(picker: NSPopUpButton, label: NSTextField, report: LedgerReport, english: Bool) {
+        self.picker = picker; self.label = label; self.report = report; self.english = english
+    }
+
+    @objc func update(_ sender: Any?) {
+        let account = picker.titleOfSelectedItem ?? ""
+        let current = displayBalance(report.balances[account, default: .zero], account: account)
+        label.stringValue = english ? "Current ledger balance: \(LedgerParser.format(current))" : "当前账面余额：\(LedgerParser.format(current))"
     }
 }
 
@@ -2293,6 +2341,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let inspectorTitleLabel = NSTextField(labelWithString: "")
     private weak var journalFilterContainer: NSStackView?
     private weak var reportFilterContainer: NSStackView?
+    private weak var accountActionContainer: NSStackView?
     private weak var dashboardContainer: NSView?
     private weak var inspectorContainer: NSView?
     private var inspectorCompactWidthConstraint: NSLayoutConstraint?
@@ -2508,6 +2557,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ledgerMenu.addItem(withTitle: ui("记一笔…", "Record Transaction…"), action: #selector(recordTransaction(_:)), keyEquivalent: "e")
         ledgerMenu.addItem(.separator())
         ledgerMenu.addItem(withTitle: ui("添加账户…", "Add Account…"), action: #selector(addAccount(_:)), keyEquivalent: "a")
+        ledgerMenu.addItem(withTitle: ui("调整账户余额…", "Adjust Account Balance…"), action: #selector(adjustAccountBalance(_:)), keyEquivalent: "")
         ledgerMenu.addItem(withTitle: ui("添加账户备注…", "Add Account Note…"), action: #selector(addAccountNote(_:)), keyEquivalent: "")
         ledgerMenu.addItem(withTitle: ui("添加对账记录…", "Add Reconciliation…"), action: #selector(addReconciliation(_:)), keyEquivalent: "")
         ledgerMenu.addItem(withTitle: ui("添加事件…", "Add Event…"), action: #selector(addEvent(_:)), keyEquivalent: "")
@@ -2939,6 +2989,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         reportFilters.addArrangedSubview(reportLedgerScopePicker); reportFilters.addArrangedSubview(periodPicker); reportFilters.addArrangedSubview(reportKindControl); reportFilters.addArrangedSubview(reportTagPicker); reportFilters.addArrangedSubview(reportAccountPicker); reportFilters.addArrangedSubview(NSView())
         inspectorHeader.addArrangedSubview(reportFilters)
         reportFilterContainer = reportFilters
+        let accountActions = NSStackView()
+        accountActions.orientation = .horizontal
+        accountActions.alignment = .centerY
+        accountActions.spacing = 8
+        accountActions.isHidden = true
+        for (title, action, symbol) in [
+            (ui("添加账户", "Add Account"), #selector(addAccount(_:)), "plus"),
+            (ui("修改", "Edit"), #selector(editAccount(_:)), "pencil"),
+            (ui("删除", "Delete"), #selector(deleteAccount(_:)), "trash")
+        ] {
+            let button = NSButton(title: title, target: self, action: action)
+            button.bezelStyle = .rounded
+            button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
+            button.imagePosition = .imageLeading
+            button.controlSize = .small
+            accountActions.addArrangedSubview(button)
+        }
+        accountActions.addArrangedSubview(NSView())
+        inspectorHeader.addArrangedSubview(accountActions)
+        accountActionContainer = accountActions
         reportStack.addArrangedSubview(inspectorHeader)
         reportChartView.translatesAutoresizingMaskIntoConstraints = false
         reportChartView.heightAnchor.constraint(equalToConstant: 224).isActive = true
@@ -2968,6 +3038,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             inspectorTitleLabel.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             journalFilters.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             reportFilters.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
+            accountActions.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             reportChartView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             reportScrollView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
         ])
@@ -3566,6 +3637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let commands = [
             CommandPaletteItem(title: ui("记一笔", "Record Transaction"), detail: ui("在支出、收入和转账之间自由切换", "Switch freely between expense, income, and transfer"), action: { [weak self] in self?.recordTransaction(nil) }),
             CommandPaletteItem(title: "添加账户", detail: "声明新的资产、负债、收入或费用账户", action: { [weak self] in self?.addAccount(nil) }),
+            CommandPaletteItem(title: "调整账户余额", detail: "输入实际余额，自动记录初始余额或调整额", action: { [weak self] in self?.adjustAccountBalance(nil) }),
             CommandPaletteItem(title: "添加账户备注", detail: "记录账户用途、结算日等不影响余额的信息", action: { [weak self] in self?.addAccountNote(nil) }),
             CommandPaletteItem(title: "设置预算", detail: "添加当前月份的费用预算", action: { [weak self] in self?.addBudget(nil) }),
             CommandPaletteItem(title: "添加事件", detail: "记录换工作、搬家等不影响余额的账本事件", action: { [weak self] in self?.addEvent(nil) }),
@@ -4053,6 +4125,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
     }
 
+    @objc private func adjustAccountBalance(_ sender: Any?) {
+        let accounts = latestReport.accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }
+        guard !accounts.isEmpty else {
+            presentError(ui("请先添加至少一个资产或负债账户。", "Add at least one asset or liability account first."))
+            return
+        }
+        let form = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 124))
+        let date = NSDatePicker(); date.datePickerStyle = .clockAndCalendar; date.datePickerElements = .yearMonthDay; date.dateValue = Date()
+        let account = NSPopUpButton(frame: .zero, pullsDown: false); account.addItems(withTitles: accounts)
+        let balance = NSTextField(string: ""); balance.placeholderString = ui("例如 1,250.00", "e.g. 1,250.00")
+        let note = NSTextField(string: ""); note.placeholderString = ui("可选，例如：开户时余额", "Optional, e.g. opening balance")
+        let accountLabel = NSTextField(labelWithString: "")
+        accountLabel.textColor = .secondaryLabelColor; accountLabel.font = .systemFont(ofSize: 11)
+        let updateLabel = AccountBalanceLabelBinder(picker: account, label: accountLabel, report: latestReport, english: appLanguage == .english)
+        account.target = updateLabel; account.action = #selector(AccountBalanceLabelBinder.update(_:)); updateLabel.update(nil)
+        let rows: [(String, NSView)] = [
+            (ui("日期", "Date"), date), (ui("账户", "Account"), account),
+            (ui("实际余额", "Actual balance"), balance), (ui("备注", "Note"), note)
+        ]
+        for (index, pair) in rows.enumerated() {
+            let y = CGFloat(94 - index * 28)
+            let label = NSTextField(labelWithString: pair.0); label.alignment = .right; label.frame = NSRect(x: 0, y: y, width: 90, height: 24)
+            pair.1.frame = NSRect(x: 102, y: y, width: 278, height: 24)
+            form.addSubview(label); form.addSubview(pair.1)
+        }
+        accountLabel.frame = NSRect(x: 102, y: 70, width: 278, height: 16)
+        form.addSubview(accountLabel)
+        let alert = NSAlert()
+        alert.messageText = ui("调整账户余额", "Adjust Account Balance")
+        alert.informativeText = ui("输入实际余额。若账面余额为 0，将记录为初始余额；否则会新增一笔余额调整。原有交易不会被改动。", "Enter the actual balance. A zero ledger balance becomes an opening balance; otherwise a balance adjustment is added. Existing transactions are never changed.")
+        alert.accessoryView = form
+        alert.addButton(withTitle: ui("确认调整", "Adjust"))
+        alert.addButton(withTitle: ui("取消", "Cancel"))
+        while true {
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            guard let target = Decimal(string: balance.stringValue.replacingOccurrences(of: ",", with: ""), locale: Locale(identifier: "en_US_POSIX")), target >= .zero else {
+                alert.informativeText = ui("实际余额必须是大于或等于 0 的数字。", "Actual balance must be a number greater than or equal to zero.")
+                continue
+            }
+            let selected = account.titleOfSelectedItem!
+            let current = displayBalance(latestReport.balances[selected, default: .zero], account: selected)
+            let difference = target - current
+            guard difference != .zero else {
+                alert.informativeText = ui("实际余额与当前账面余额相同，无需调整。", "The actual balance already matches the ledger balance.")
+                continue
+            }
+            let cleanedNote = note.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleanedNote.contains("\n") else {
+                alert.informativeText = ui("备注不能包含换行。", "The note cannot contain line breaks.")
+                continue
+            }
+            let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.calendar = Calendar(identifier: .gregorian); formatter.dateFormat = "yyyy-MM-dd"
+            insertBalanceAdjustment(date: formatter.string(from: date.dateValue), account: selected, targetBalance: target, currentBalance: current, note: cleanedNote)
+            return
+        }
+    }
+
     @objc private func addEvent(_ sender: Any?) {
         let form = NSView(frame: NSRect(x: 0, y: 0, width: 390, height: 60))
         let date = NSDatePicker(); date.datePickerStyle = .clockAndCalendar; date.datePickerElements = .yearMonthDay; date.dateValue = Date()
@@ -4155,6 +4284,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         }
     }
 
+    @objc private func editAccount(_ sender: Any?) {
+        let accounts = latestReport.accounts.filter { !isInternalBalanceAdjustmentAccount($0) }
+        guard !accounts.isEmpty else { presentError(ui("请先添加账户。", "Add an account first.")); return }
+        let form = NSView(frame: NSRect(x: 0, y: 0, width: 390, height: 60))
+        let account = NSPopUpButton(frame: NSRect(x: 110, y: 34, width: 264, height: 24), pullsDown: false); account.addItems(withTitles: accounts)
+        let newName = NSTextField(frame: NSRect(x: 110, y: 2, width: 264, height: 24)); newName.placeholderString = ui("只输入冒号后的名称", "Enter the name after the colon")
+        for (title, y) in [(ui("原账户", "Account"), CGFloat(34)), (ui("新名称", "New name"), CGFloat(2))] {
+            let label = NSTextField(labelWithString: title); label.alignment = .right; label.frame = NSRect(x: 0, y: y, width: 98, height: 24); form.addSubview(label)
+        }
+        form.addSubview(account); form.addSubview(newName)
+        let alert = NSAlert(); alert.messageText = ui("修改账户", "Edit Account")
+        alert.informativeText = ui("将同步更新账户声明和交易中的账户名称。", "The account declaration and its transaction postings will be renamed together.")
+        alert.accessoryView = form; alert.addButton(withTitle: ui("修改", "Save")); alert.addButton(withTitle: ui("取消", "Cancel"))
+        while true {
+            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            let old = account.titleOfSelectedItem!
+            let cleaned = newName.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !cleaned.isEmpty, !cleaned.contains(":"), !cleaned.contains(";"), !cleaned.contains("#"), !cleaned.contains(where: { $0.isWhitespace }) else {
+                alert.informativeText = ui("账户名称不能为空，且不能含空白、冒号、分号或 #。", "The name cannot be empty or contain whitespace, :, ;, or #."); continue
+            }
+            let root = old.split(separator: ":").first.map(String.init) ?? ""
+            let replacement = "\(root):\(cleaned)"
+            guard replacement != old else { return }
+            guard !latestReport.accounts.contains(replacement) else { alert.informativeText = ui("该账户名称已存在。", "That account already exists."); continue }
+            replaceAccount(old, with: replacement)
+            return
+        }
+    }
+
+    @objc private func deleteAccount(_ sender: Any?) {
+        let accounts = latestReport.accounts.filter { !isInternalBalanceAdjustmentAccount($0) }
+        guard !accounts.isEmpty else { presentError(ui("没有可删除的账户。", "There is no account to delete.")); return }
+        let picker = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 300, height: 26), pullsDown: false); picker.addItems(withTitles: accounts)
+        let alert = NSAlert(); alert.messageText = ui("删除账户", "Delete Account")
+        alert.informativeText = ui("只能删除从未用于交易的账户。", "Only accounts that have never been used by a transaction can be deleted.")
+        alert.accessoryView = picker; alert.addButton(withTitle: ui("删除", "Delete")); alert.addButton(withTitle: ui("取消", "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn, let selected = picker.titleOfSelectedItem else { return }
+        guard !latestReport.journal.contains(where: { $0.postings.contains(where: { $0.account == selected }) }) else {
+            presentError(ui("此账户已用于交易，为保护历史记录不能删除。可改名，或保留不用。", "This account is used by transactions and cannot be deleted. Rename it or leave it unused.")); return
+        }
+        removeAccountDeclaration(selected)
+    }
+
     private func insertAccountDeclaration(_ account: String) {
         let raw = textView.string
         let newline = raw.contains("\r\n") ? "\r\n" : "\n"
@@ -4165,13 +4337,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         for (index, line) in lines.enumerated() {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             let lineEnd = offset + line.utf16.count + (index < lines.count - 1 ? newline.utf16.count : 0)
-            if trimmed == "@账户" { inAccountSection = true }
+            if trimmed == "@账户" || trimmed == "@accounts" { inAccountSection = true }
             else if line.hasPrefix("# ") { inAccountSection = false }
             if inAccountSection, line.hasPrefix("- ") { lastAccountEnd = lineEnd }
             offset = lineEnd
         }
         guard let insertionOffset = lastAccountEnd else {
-            presentError("未找到 @账户 区域；请先修正文件头后再添加账户。")
+            presentError(ui("未找到账户区；请先修正文件头后再添加账户。", "Could not find the account section. Fix the file header before adding an account."))
             return
         }
         let text = "- \(account)\(newline)"
@@ -4180,6 +4352,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         isDirty = true
         scheduleParse(immediately: true)
         scheduleAutosave()
+    }
+
+    private func replaceAccount(_ old: String, with replacement: String) {
+        let newline = textView.string.contains("\r\n") ? "\r\n" : "\n"
+        let updated = textView.string.components(separatedBy: newline).map { line -> String in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if trimmed == "- \(old)" { return line.replacingOccurrences(of: old, with: replacement) }
+            if line.hasPrefix("  - \(old) ") || line.hasPrefix("\t- \(old) ") { return line.replacingOccurrences(of: old, with: replacement) }
+            return line
+        }.joined(separator: newline)
+        textView.string = updated; textView.didChangeText(); isDirty = true; scheduleParse(immediately: true); scheduleAutosave()
+        statusLabel.stringValue = ui("账户已修改", "Account updated")
+    }
+
+    private func removeAccountDeclaration(_ account: String) {
+        let newline = textView.string.contains("\r\n") ? "\r\n" : "\n"
+        let updated = textView.string.components(separatedBy: newline).filter { $0.trimmingCharacters(in: .whitespaces) != "- \(account)" }.joined(separator: newline)
+        textView.string = updated; textView.didChangeText(); isDirty = true; scheduleParse(immediately: true); scheduleAutosave()
+        statusLabel.stringValue = ui("账户已删除", "Account deleted")
     }
 
     private func insertBudget(month: String, account: String, amount: Decimal) {
@@ -4399,6 +4590,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     private func insertTransaction(date: String, summary: String, payee: String, tags: String, links: String, destination: String, source: String, amount: Decimal) {
         insertTransactions(date: date, summary: summary, payee: payee, tags: tags, links: links, destination: destination, source: source, amounts: [amount])
+    }
+
+    private func insertBalanceAdjustment(date: String, account: String, targetBalance: Decimal, currentBalance: Decimal, note: String) {
+        let displayedDifference = targetBalance - currentBalance
+        let rawDifference = isLedgerAccount(account, .liability) ? -displayedDifference : displayedDifference
+        let counterpart = balanceAdjustmentCounterpart(for: account)
+        guard let withCounterpart = ledgerSourceAddingAccountDeclaration(textView.string, account: counterpart) else {
+            presentError(ui("未找到账户区，无法记录余额调整。", "The account section could not be found, so the balance adjustment could not be recorded.")); return
+        }
+        let baseTitle = currentBalance == .zero ? ui("初始余额", "Opening balance") : ui("余额调整", "Balance adjustment")
+        let summary: String
+        if note.isEmpty { summary = baseTitle }
+        else { summary = appLanguage == .english ? "\(baseTitle) — \(note)" : "\(baseTitle)：\(note)" }
+        let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.dateFormat = "HH:mm"
+        let timeKey = appLanguage == .english ? "time:" : "时间:"
+        let block = "- \(summary)\n  - \(timeKey) \(formatter.string(from: Date()))\n  - \(account)  \(LedgerParser.format(rawDifference))\n  - \(counterpart)  \(LedgerParser.format(-rawDifference))"
+        let consolidated = consolidatedLedgerDateSections(withCounterpart).text
+        let insertion = ledgerTransactionInsertion(in: consolidated, date: date, transactionBlocks: [block])
+        let updated = NSMutableString(string: consolidated); updated.insert(insertion.text, at: insertion.location)
+        textView.string = updated as String; textView.didChangeText(); isDirty = true; scheduleParse(immediately: true); scheduleAutosave()
+        statusLabel.stringValue = currentBalance == .zero ? ui("已设置初始余额", "Opening balance set") : ui("余额已调整", "Balance adjusted")
     }
 
     private func insertTransactions(date: String, summary: String, payee: String, tags: String, links: String, destination: String, source: String, amounts: [Decimal]) {
@@ -4683,6 +4895,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         journalStatusFilter.isHidden = sidePanelMode != .journal
         journalFilterContainer?.isHidden = sidePanelMode != .journal
         reportFilterContainer?.isHidden = sidePanelMode != .reports
+        accountActionContainer?.isHidden = sidePanelMode != .accounts
         inspectorTitleLabel.stringValue = switch sidePanelMode {
         case .overview: ui("概览", "Overview")
         case .journal: ui("日记账", "Journal")
@@ -5106,7 +5319,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         if report.balances.isEmpty { output += "尚无有效交易。\n" }
         else {
             output += "账户余额\n"
-            for (account, raw) in report.balances.sorted(by: { $0.key < $1.key }) {
+            for (account, raw) in report.balances.sorted(by: { $0.key < $1.key }) where !isInternalBalanceAdjustmentAccount(account) {
                 let display = displayBalance(raw, account: account)
                 output += "\(account)  \(LedgerParser.format(display))\n"
             }
@@ -5157,18 +5370,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     }
 
     private func accountTreeText(for report: LedgerReport) -> String {
-        guard !report.accounts.isEmpty else { return "尚未声明账户" }
+        let visibleAccounts = report.accounts.filter { !isInternalBalanceAdjustmentAccount($0) }
+        guard !visibleAccounts.isEmpty else { return ui("尚未声明账户", "No accounts declared") }
         var output = ""
         let notes = Dictionary(uniqueKeysWithValues: report.accountNotes.map { ($0.account, $0.text) })
-        for root in ["资产", "负债", "权益", "收入", "费用"] {
-            let accounts = report.accounts.filter { $0 == root || $0.hasPrefix("\(root):") }
+        let roots = appLanguage == .english ? ["Assets", "Liabilities", "Equity", "Income", "Expenses"] : ["资产", "负债", "权益", "收入", "费用"]
+        let invertedRoots = Set(appLanguage == .english ? ["Liabilities", "Equity", "Income"] : ["负债", "权益", "收入"])
+        for root in roots {
+            let accounts = visibleAccounts.filter { $0 == root || $0.hasPrefix("\(root):") }
             guard !accounts.isEmpty else { continue }
             let rawTotal = accounts.reduce(Decimal.zero) { total, account in total + (report.balances[account] ?? .zero) }
-            let displayTotal = ["负债", "权益", "收入"].contains(root) ? -rawTotal : rawTotal
+            let displayTotal = invertedRoots.contains(root) ? -rawTotal : rawTotal
             output += "\(root)  \(LedgerParser.format(displayTotal))\n"
             for account in accounts {
                 let depth = account.split(separator: ":").count - 1
-                let display = (["负债", "权益", "收入"].contains(root) ? -(report.balances[account] ?? .zero) : (report.balances[account] ?? .zero))
+                let display = (invertedRoots.contains(root) ? -(report.balances[account] ?? .zero) : (report.balances[account] ?? .zero))
                 output += "\(String(repeating: "  ", count: depth))\(account.split(separator: ":").last!)  \(LedgerParser.format(display))\n"
                 if let note = notes[account] { output += "\(String(repeating: "  ", count: depth + 1))· \(note)\n" }
             }
@@ -5281,7 +5497,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
 
     private func updateReportAccountPicker(for report: LedgerReport) {
         let allTitle = ui("所有账户", "All Accounts")
-        let accounts = report.accounts.sorted()
+        let accounts = report.accounts.filter { !isInternalBalanceAdjustmentAccount($0) }.sorted()
         let desired = selectedReportAccount.flatMap { accounts.contains($0) ? $0 : nil }
         if reportAccountPicker.itemTitles != [allTitle] + accounts {
             reportAccountPicker.removeAllItems()
@@ -5346,10 +5562,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             currency: USD
             ---
 
-            @账户
+            @accounts
             - Assets:Cash
             - Assets:Bank
             - Liabilities:CreditCard
+            - Equity:BalanceAdjustment
             - Income:Salary
             - Expenses:Dining
             - Expenses:Transport
@@ -5373,6 +5590,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         - 资产:银行卡
         - 资产:支付宝
         - 负债:信用卡
+        - 权益:余额调整
         - 收入:工资
         - 费用:餐饮
         - 费用:交通

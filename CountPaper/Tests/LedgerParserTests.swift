@@ -50,6 +50,7 @@ struct LedgerParserTests {
         expect(reconciliationModeText(entries: revisedReport.journal, accounts: revisedReport.accounts).contains("资产:现金  957.50"), "修改历史交易后全部后续余额应同步重算")
         let english = sample
             .replacingOccurrences(of: "currency: CNY", with: "currency: USD")
+            .replacingOccurrences(of: "@账户", with: "@accounts")
             .replacingOccurrences(of: "资产:现金", with: "Assets:Cash")
             .replacingOccurrences(of: "收入:工资", with: "Income:Salary")
             .replacingOccurrences(of: "费用:餐饮", with: "Expenses:Dining")
