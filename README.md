@@ -3,7 +3,7 @@
 简体中文
 
 <details>
-<summary><strong>English</strong> — click to read without leaving this page</summary>
+<summary><strong>English</strong> — click to read</summary>
 
 <br>
 
