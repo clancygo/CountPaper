@@ -98,6 +98,39 @@ struct LedgerParserTests {
         expect(sameDateResult.components(separatedBy: "# 2026-08-11").count == 2 && sameDateResult.contains("- 原交易\n") && sameDateResult.contains("- 新交易\n"), "快速记账应插入已有日期章节而不是重复日期标题")
         let newDateInsertion = ledgerTransactionInsertion(in: existingDateSource, date: "2026-08-12", transactionBlocks: ["- 次日交易\n  - 费用:餐饮  3.00\n  - 资产:现金  -3.00"])
         expect(newDateInsertion.location == existingDateSource.utf16.count && newDateInsertion.text.contains("# 2026-08-12\n- 次日交易"), "新日期快速记账应创建新的一级日期标题")
+        let duplicateDates = """
+        ---
+        format: countpaper/0.2
+        currency: CNY
+        ---
+
+        @账户
+        - 资产:现金
+        - 费用:餐饮
+
+        # 2026-08-11
+        - 早餐
+          - 费用:餐饮  10.00
+          - 资产:现金  -10.00
+
+        # 2026-08-12
+        - 午餐
+          - 费用:餐饮  20.00
+          - 资产:现金  -20.00
+
+        # 2026-08-11
+        - 晚餐
+          - 费用:餐饮  30.00
+          - 资产:现金  -30.00
+
+        # 2026-08-13
+        """
+        expect(LedgerParser.parse(duplicateDates).diagnostics.contains { $0.contains("重复日期标题") }, "解析器应报告重复日期标题")
+        let consolidatedDates = consolidatedLedgerDateSections(duplicateDates)
+        expect(consolidatedDates.mergedHeadings == 1 && consolidatedDates.removedEmptyHeadings == 1, "日期整理应统计合并与空标题")
+        expect(consolidatedDates.text.components(separatedBy: "# 2026-08-11").count == 2 && consolidatedDates.text.contains("早餐") && consolidatedDates.text.contains("晚餐"), "同日完整交易必须统一到一个日期标题下")
+        expect(!consolidatedDates.text.contains("# 2026-08-13"), "没有交易的空日期标题应被移除")
+        expect(LedgerParser.parse(consolidatedDates.text).diagnostics.isEmpty, "整理后的账本应保持格式有效和平衡")
         let editableOutline = "- 午餐\n  - 收款方: 星巴克\n  - 标签: 咖啡, 日常\n  - 费用:餐饮  32.50\n  - 资产:现金  -32.50\n"
         let editedOutline = canonicalOutlineTransactionBlock(source: editableOutline, summary: "午后咖啡", flag: nil, payee: "星巴克", tags: ["咖啡"], destination: "费用:餐饮", sourceAccount: "资产:现金", amount: Decimal(string: "-20")!)
         expect(editedOutline == "- 午后咖啡\n  - 收款方: 星巴克\n  - 标签: 咖啡\n  - 费用:餐饮  -20.00\n  - 资产:现金  20.00\n", "表单修改应生成合法的大纲交易并保留负金额语义")

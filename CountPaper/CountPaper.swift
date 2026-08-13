@@ -565,6 +565,73 @@ struct LedgerSourceInsertion: Equatable {
     let text: String
 }
 
+struct LedgerDateConsolidation: Equatable {
+    let text: String
+    let mergedHeadings: Int
+    let removedEmptyHeadings: Int
+}
+
+/// Makes the outline invariant explicit: every ISO date owns one and only one
+/// section. Complete transaction/comment lines move together; their contents
+/// are never interpreted or rewritten by this structural operation.
+func consolidatedLedgerDateSections(_ raw: String) -> LedgerDateConsolidation {
+    let newline = raw.contains("\r\n") ? "\r\n" : "\n"
+    let normalized = raw.replacingOccurrences(of: "\r\n", with: "\n")
+    let hadTrailingNewline = normalized.hasSuffix("\n")
+    var lines = normalized.components(separatedBy: "\n")
+    if hadTrailingNewline, lines.last == "" { lines.removeLast() }
+    struct Occurrence { let date: String; var body: [String] }
+    var prefix: [String] = []
+    var occurrences: [Occurrence] = []
+    let headingPattern = try! NSRegularExpression(pattern: "^# (\\d{4}-\\d{2}-\\d{2})\\s*$")
+    for line in lines {
+        let range = NSRange(line.startIndex..., in: line)
+        if let match = headingPattern.firstMatch(in: line, range: range),
+           let dateRange = Range(match.range(at: 1), in: line) {
+            occurrences.append(Occurrence(date: String(line[dateRange]), body: []))
+        } else if occurrences.isEmpty {
+            prefix.append(line)
+        } else {
+            occurrences[occurrences.count - 1].body.append(line)
+        }
+    }
+    guard !occurrences.isEmpty else { return LedgerDateConsolidation(text: raw, mergedHeadings: 0, removedEmptyHeadings: 0) }
+
+    func trimmedBlankLines(_ source: [String]) -> [String] {
+        var result = source
+        while result.first?.trimmingCharacters(in: .whitespaces).isEmpty == true { result.removeFirst() }
+        while result.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { result.removeLast() }
+        return result
+    }
+    while prefix.last?.trimmingCharacters(in: .whitespaces).isEmpty == true { prefix.removeLast() }
+    var orderedDates: [String] = []
+    var grouped: [String: [String]] = [:]
+    var merged = 0
+    var removedEmpty = 0
+    for occurrence in occurrences {
+        let body = trimmedBlankLines(occurrence.body)
+        if grouped[occurrence.date] == nil {
+            orderedDates.append(occurrence.date)
+            grouped[occurrence.date] = []
+        } else {
+            merged += 1
+        }
+        if body.isEmpty { removedEmpty += 1; continue }
+        if grouped[occurrence.date]?.isEmpty == false { grouped[occurrence.date]?.append("") }
+        grouped[occurrence.date]?.append(contentsOf: body)
+    }
+    let sections = orderedDates.compactMap { date -> String? in
+        guard let body = grouped[date], !body.isEmpty else { return nil }
+        return (["# \(date)"] + body).joined(separator: "\n")
+    }
+    var result = prefix.joined(separator: "\n")
+    if !result.isEmpty, !sections.isEmpty { result += "\n\n" }
+    result += sections.joined(separator: "\n\n")
+    if hadTrailingNewline { result += "\n" }
+    guard merged > 0 || removedEmpty > 0 else { return LedgerDateConsolidation(text: raw, mergedHeadings: 0, removedEmptyHeadings: 0) }
+    return LedgerDateConsolidation(text: result.replacingOccurrences(of: "\n", with: newline), mergedHeadings: merged, removedEmptyHeadings: removedEmpty)
+}
+
 /// Returns a local insertion that keeps one outline section per date whenever
 /// possible. Existing whitespace and every unrelated source character remain
 /// untouched.
@@ -1042,6 +1109,7 @@ enum LedgerParser {
         var sawClosingFence = false
         var sawAccountMarker = false
         var inAccountSection = false
+        var seenDateHeadings = Set<String>()
         let lines = text.components(separatedBy: .newlines)
 
         func finishTransaction(at line: Int) {
@@ -1100,7 +1168,10 @@ enum LedgerParser {
                 finishTransaction(at: lineNumber)
                 inAccountSection = false
                 let date = String(rawLine.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                if isValidISODate(date) { currentDate = date } else { currentDate = nil; report.diagnostics.append("错误：第 \(lineNumber) 行日期标题应为“# YYYY-MM-DD”") }
+                if isValidISODate(date) {
+                    currentDate = date
+                    if !seenDateHeadings.insert(date).inserted { report.diagnostics.append("错误：第 \(lineNumber) 行重复日期标题“# \(date)”；同一天的交易必须位于同一标题下") }
+                } else { currentDate = nil; report.diagnostics.append("错误：第 \(lineNumber) 行日期标题应为“# YYYY-MM-DD”") }
                 continue
             }
             if rawLine.hasPrefix("- ") {
@@ -2275,6 +2346,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ledgerMenu.addItem(withTitle: ui("打开光标所在交易的链接…", "Open Transaction Link at Cursor…"), action: #selector(openTransactionLinkAtCursor(_:)), keyEquivalent: "")
         ledgerMenu.addItem(withTitle: ui("标记待确认／确认光标所在交易", "Toggle Transaction Confirmation"), action: #selector(toggleTransactionStatusAtCursor(_:)), keyEquivalent: "")
         ledgerMenu.addItem(withTitle: ui("删除光标所在交易…", "Delete Transaction at Cursor…"), action: #selector(deleteTransactionAtCursor(_:)), keyEquivalent: "")
+        ledgerMenu.addItem(.separator())
+        ledgerMenu.addItem(withTitle: ui("合并重复日期标题", "Merge Duplicate Date Headings"), action: #selector(consolidateDateHeadings(_:)), keyEquivalent: "")
         ledgerMenu.addItem(withTitle: ui("重新校验", "Validate Again"), action: #selector(reparseNow), keyEquivalent: "r")
         ledgerMenu.addItem(withTitle: ui("跳到下一个错误", "Go to Next Error"), action: #selector(jumpToNextDiagnostic(_:)), keyEquivalent: "j")
         let help = NSMenuItem(title: ui("帮助", "Help"), action: nil, keyEquivalent: ""); menu.addItem(help)
@@ -3597,15 +3670,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             }
             guard let replacement = canonicalOutlineTransactionBlock(source: original, summary: cleanedSummary, flag: transaction.flag, payee: cleanedPayee.isEmpty ? nil : cleanedPayee, tags: cleanedTags, links: cleanedLinks, destination: destination.titleOfSelectedItem!, sourceAccount: source.titleOfSelectedItem!, amount: value) else { return }
             let newDate = dateFormatter.string(from: date.dateValue)
-            if newDate == transaction.date {
-                textView.textStorage?.replaceCharacters(in: range, with: replacement)
-            } else {
-                let updated = NSMutableString(string: raw)
-                updated.replaceCharacters(in: range, with: "")
-                let insertion = ledgerTransactionInsertion(in: updated as String, date: newDate, transactionBlocks: [replacement.trimmingCharacters(in: .newlines)])
+            let updated = NSMutableString(string: raw)
+            updated.replaceCharacters(in: range, with: newDate == transaction.date ? replacement : "")
+            if newDate != transaction.date {
+                let organizedBase = consolidatedLedgerDateSections(updated as String).text
+                updated.setString(organizedBase)
+                let insertion = ledgerTransactionInsertion(in: organizedBase, date: newDate, transactionBlocks: [replacement.trimmingCharacters(in: .newlines)])
                 updated.insert(insertion.text, at: insertion.location)
-                textView.string = updated as String
             }
+            textView.string = consolidatedLedgerDateSections(updated as String).text
             textView.didChangeText()
             isDirty = true
             scheduleParse(immediately: true)
@@ -3672,11 +3745,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         alert.addButton(withTitle: "删除交易")
         alert.addButton(withTitle: "取消")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
-        textView.textStorage?.replaceCharacters(in: range, with: "")
+        let updated = NSMutableString(string: raw)
+        updated.replaceCharacters(in: range, with: "")
+        textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (raw as NSString).length), with: consolidatedLedgerDateSections(updated as String).text)
         textView.didChangeText()
         isDirty = true
         scheduleParse(immediately: true)
         scheduleAutosave()
+    }
+
+    @objc private func consolidateDateHeadings(_ sender: Any?) {
+        let raw = textView.string
+        let result = consolidatedLedgerDateSections(raw)
+        guard result.text != raw else {
+            statusLabel.stringValue = ui("日期结构已经整齐", "Date sections are already organized")
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = ui("合并重复日期标题？", "Merge Duplicate Date Headings?")
+        alert.informativeText = ui("将把同一天的完整交易块移动到一个 # 日期标题下，并移除空日期标题。交易内容不会改变。", "Complete transaction blocks for the same day will move under one # date heading, and empty date headings will be removed. Transaction contents will not change.")
+        alert.addButton(withTitle: ui("合并", "Merge"))
+        alert.addButton(withTitle: ui("取消", "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (raw as NSString).length), with: result.text)
+        textView.didChangeText()
+        isDirty = true
+        scheduleParse(immediately: true)
+        scheduleAutosave()
+        statusLabel.stringValue = ui("已合并 \(result.mergedHeadings) 个重复日期标题", "Merged \(result.mergedHeadings) duplicate date headings")
     }
 
     private func transactionAtCursor(in raw: String) -> LedgerTransaction? {
@@ -4122,8 +4218,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         let tagsLine = normalizedTags.isEmpty ? "" : "\n  - 标签: \(normalizedTags.joined(separator: ", "))"
         let linkLine = normalizedLinks.isEmpty ? "" : "\n  - 链接: \(normalizedLinks.joined(separator: ", "))"
         let blocks = amounts.map { amount in "- \(summary)\(payeeLine)\(tagsLine)\(linkLine)\n  - \(destination)  \(LedgerParser.format(amount))\n  - \(source)  \(LedgerParser.format(-amount))" }
-        let insertion = ledgerTransactionInsertion(in: textView.string, date: date, transactionBlocks: blocks)
-        textView.textStorage?.replaceCharacters(in: NSRange(location: insertion.location, length: 0), with: insertion.text)
+        let original = textView.string
+        let consolidated = consolidatedLedgerDateSections(original).text
+        let insertion = ledgerTransactionInsertion(in: consolidated, date: date, transactionBlocks: blocks)
+        if consolidated == original {
+            textView.textStorage?.replaceCharacters(in: NSRange(location: insertion.location, length: 0), with: insertion.text)
+        } else {
+            let updated = NSMutableString(string: consolidated)
+            updated.insert(insertion.text, at: insertion.location)
+            textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (original as NSString).length), with: updated as String)
+        }
         textView.didChangeText()
         isDirty = true
         scheduleParse(immediately: true)
@@ -4558,7 +4662,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         alert.addButton(withTitle: ui("删除", "Delete"))
         alert.addButton(withTitle: ui("取消", "Cancel"))
         guard alert.runModal() == .alertFirstButtonReturn else { return false }
-        textView.textStorage?.replaceCharacters(in: range, with: "")
+        let raw = textView.string
+        let updated = NSMutableString(string: raw)
+        updated.replaceCharacters(in: range, with: "")
+        let organized = consolidatedLedgerDateSections(updated as String).text
+        if organized == updated as String {
+            textView.textStorage?.replaceCharacters(in: range, with: "")
+        } else {
+            textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (raw as NSString).length), with: organized)
+        }
         textView.didChangeText()
         isDirty = true
         if editingDashboardTransaction?.startLine == transaction.startLine { cancelInlineTransactionEdit(nil) }
@@ -4746,14 +4858,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             return
         }
         if newDate == transaction.date {
-            textView.textStorage?.replaceCharacters(in: range, with: replacement)
+            let updated = NSMutableString(string: raw)
+            updated.replaceCharacters(in: range, with: replacement)
+            let organized = consolidatedLedgerDateSections(updated as String).text
+            if organized == updated as String {
+                textView.textStorage?.replaceCharacters(in: range, with: replacement)
+            } else {
+                textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (raw as NSString).length), with: organized)
+            }
         } else {
             let updated = NSMutableString(string: raw)
             updated.replaceCharacters(in: range, with: "")
             let block = replacement.trimmingCharacters(in: .newlines)
-            let insertion = ledgerTransactionInsertion(in: updated as String, date: newDate, transactionBlocks: [block])
-            updated.insert(insertion.text, at: insertion.location)
-            textView.string = updated as String
+            let organizedBase = consolidatedLedgerDateSections(updated as String).text
+            let insertion = ledgerTransactionInsertion(in: organizedBase, date: newDate, transactionBlocks: [block])
+            let final = NSMutableString(string: organizedBase)
+            final.insert(insertion.text, at: insertion.location)
+            textView.string = consolidatedLedgerDateSections(final as String).text
         }
         textView.didChangeText()
         isDirty = true
