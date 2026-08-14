@@ -1,105 +1,78 @@
 # CountPaper
 
-[English](README.en.md) · 简体中文
+English · [简体中文](README.zh-CN.md)
 
-CountPaper 是一款为 macOS 设计的纯文本个人账本。
+CountPaper is a local-first, plain-text personal ledger for macOS. Your `.countpaper` file is the source of truth. The app records transactions, checks format and balance, and turns the same file into useful views and reports.
 
-它把账本还给文件：每一笔收入、支出和转账都保存在一个可读、可长期保存的 `.countpaper` 文本文件中。CountPaper 不建立私有账务数据库，不需要账户，也不接管你的同步服务。
+<img src="CountPaper/Assets/CountPaperIcon-v2.png" alt="CountPaper icon" width="72">
 
-<img src="CountPaper/Assets/CountPaperIcon.svg.png" alt="CountPaper 图标" width="88">
+> **Current release:** [CountPaper 0.12.0](https://github.com/clancygo/CountPaper/releases/tag/v0.12.0). The project is still under active development and testing. Keep ordinary backups or cloud-provider version history for important ledger files.
 
-> **开发状态：** CountPaper 目前处于开发测试阶段，界面、文本格式和功能仍可能调整。请勿把测试版本作为账务数据的唯一副本，建议始终启用云盘版本历史或定期备份。
+## Download
 
-## 为什么是 CountPaper
+Download [CountPaper-0.12.0.dmg](https://github.com/clancygo/CountPaper/releases/download/v0.12.0/CountPaper-0.12.0.dmg), open it, then drag CountPaper to Applications.
 
-记账软件通常让数据困在应用里。CountPaper 选择另一条路：文件是唯一真实数据，App 只是一个更适合记账的界面。
+The current release is a locally signed development build and is not notarized yet. macOS may show a security notice the first time it is opened.
 
-你可以把账本放在 iCloud Drive、Dropbox、坚果云或任意本地文件夹；将 CountPaper 设为默认打开 App 后，双击 `.countpaper` 文件即可直接进入账本。需要阅读或修改原始文本时，CountPaper 也可以将同一个文件交给系统默认的文本编辑器，或你在设置中选择的 App。外部保存后，CountPaper 会重新读取文件。
+## Why CountPaper
 
-## 核心体验
+- **Your file stays yours.** No private accounting database, account system, or built-in cloud service.
+- **Plain text, not lock-in.** Read or edit the same file with any text editor. CountPaper detects external saves.
+- **Record first.** The home screen keeps the month's totals, quick entry, and recent transactions together.
+- **Simple on screen, balanced in the file.** The interface shows categories, payment accounts, and amounts. Balanced postings remain transparent in the source text.
+- **Useful checks and views.** Journal, reconciliation, account balances, balance checks, trends, categories, and tag reports are calculated from the active file.
 
-- 记账优先：首页围绕本月收支、快速录入和最近交易设计。
-- 自动保持平衡：用户只需记录支出、收入或转账，底层文本结构由 App 自动维护。
-- 界面使用日常语言：只呈现分类、收付款账户和金额；复式结构仅保留在原始文本中。
-- 打开即检查：可在设置中开启或关闭余额检查；发现不平衡交易时会提示日期、摘要、差额和文本位置。
-- 快捷日期：今天、昨天一键选择；其他日期使用原生日历。
-- 批量金额：可选地输入 `32 57`，一次写入两笔同类交易；负数可用于退款和冲减。
-- 文本即数据：账户、交易、标签、收款方和备注都在 `.countpaper` 文件内，可用任何文本工具查看。
-- 查找与修订：可按日期、金额、摘要、收款方、账户和标签检索历史交易，并进行修改或删除。
-- 一眼看懂：日记账、逐笔对账、账户、趋势、分类和标签报表全部由当前文件即时计算。
-- 可追溯：新交易记录精确到分钟；“对账”会展示每笔交易发生后的全部资产与负债余额。
-- 本地优先：没有账户系统、没有自建云同步、没有私有账务数据库。
+## Highlights in 0.12.0
 
-## 一个账本文件
+- Account creation, renaming, deletion protection, and opening-balance or balance-adjustment entries.
+- A compact, sortable reconciliation view that shows the balance after every transaction.
+- A redesigned date picker with clear selected-date, Today, Yesterday, and native calendar controls.
+- A clearer macOS workspace: grouped navigation, visible ledger context, and a wider record-first layout.
+
+## A ledger file
 
 ```text
 ---
 format: countpaper/0.2
-currency: CNY
+currency: USD
 ---
 
-@账户
-- 资产:现金
-- 资产:银行卡
-- 收入:工资
-- 费用:餐饮
+@accounts
+- Assets:Cash
+- Assets:Bank
+- Equity:BalanceAdjustment
+- Income:Salary
+- Expenses:Dining
 
 # 2026-08-12
-- 午餐
-  - 时间: 12:35
-  - 费用:餐饮  32.50
-  - 资产:现金  -32.50
+- Lunch
+  - time: 12:35
+  - Expenses:Dining  12.50
+  - Assets:Cash  -12.50
 ```
 
-这是一笔完整的支出：费用增加 32.50，现金减少 32.50。文件保持普通文本的可读性，同时能被 CountPaper 校验、搜索和统计。
+See the complete [CountPaper plain-text format 0.2](CountPaper/FORMAT-0.2.md).
 
-完整格式说明见 [CountPaper 纯文本格式 0.2](CountPaper/FORMAT-0.2.md)。
+## Requirements
 
-## 使用方式
+- Apple-silicon Mac (M-series, `arm64`)
+- macOS Sonoma 14.0 or later
+- No network connection is required for ordinary use. iCloud Drive, Dropbox, Nutstore, and other file providers handle any sync you choose.
 
-1. 打开 CountPaper，选择“新建”，并把 `.countpaper` 文件保存到你希望同步或备份的位置。
-2. 在首页选择支出、收入或转账，填写金额和账户后记入账本。
-3. 使用“今天”或“昨天”快速记账；更早的交易可从日历选择日期。
-4. 在侧栏查看日记账、逐笔对账、账户和整页报表；使用首页“更多…”查找及管理久远交易。
-5. 需要直接阅读或编辑文件时，点击“编辑文本”；文件会在指定的外部文本 App 中打开。
+Intel Macs are not currently in the supported build and test matrix.
 
-## 运行要求
+## Development
 
-当前开发测试版本的目标环境：
-
-- Mac：搭载 Apple 芯片的 Mac（M 系列，`arm64`）。
-- 系统：macOS Sonoma 14.0 或更高版本。
-- 内存与存储：没有额外硬件要求；能正常运行上述系统即可。账本本身是普通文本文件，占用空间很小。
-- 网络：日常使用不需要联网。使用 iCloud Drive、Dropbox、坚果云等同步时，网络需求由相应文件服务决定。
-
-目前提供的是本地开发构建，尚未作为正式签名、公证或 Mac App Store 版本发布。Intel Mac 尚未纳入当前构建和测试范围。
-
-## 当前范围
-
-CountPaper 专注个人日常记账：中文账户、收入、支出、转账、基础余额与多维报表。
-
-当前不包含投资、价格、持仓、净值、多币种、导入、OCR、附件、多人协作、自建同步或账户系统。
-
-## 开发与验证
-
-项目使用原生 Swift 和 AppKit。普通使用者不需要安装 Xcode；只有自行构建或参与开发时才需要完整 Xcode。
-
-开发环境需要：
-
-- 搭载 Apple 芯片的 Mac。
-- macOS 14.0 或更高版本。
-- Xcode，以及随 Xcode 安装的 Swift 编译工具链。
-
-在仓库根目录运行：
+CountPaper is written in native Swift and AppKit. To build and verify locally:
 
 ```sh
 zsh CountPaper/verify.sh
 ```
 
-该命令会运行解析测试、生成 `CountPaper/build/CountPaper.app` 并检查本地签名。
+To create a versioned DMG:
 
-## 数据归属
+```sh
+zsh CountPaper/build-dmg.sh
+```
 
-你的账本数据始终是你自己的文件。请使用云盘版本历史或常规备份来保护 `.countpaper` 文件。
-
-本仓库暂未附带开源许可证；除非另有明确许可，代码保留所有权利。
+The repository currently has no open-source license. All rights are reserved unless explicitly granted otherwise.
