@@ -14,6 +14,12 @@ Download [CountPaper-0.12.0.dmg](https://github.com/clancygo/CountPaper/releases
 
 The current release is a locally signed development build and is not notarized yet. macOS may show a security notice the first time it is opened.
 
+## See it in use
+
+<p align="center">
+  <img src="CountPaper/Assets/README-dashboard.jpg" alt="CountPaper dashboard with monthly totals, quick transaction entry, and recent transactions" width="920">
+</p>
+
 ## Why CountPaper
 
 - **Your file stays yours.** No private accounting database, account system, or built-in cloud service.

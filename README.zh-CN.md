@@ -14,6 +14,12 @@ CountPaper 是一款面向 macOS 的本地优先纯文本个人账本。`.countp
 
 当前版本是本地签名的开发构建，尚未公证。首次打开时，macOS 可能显示安全提示。
 
+## 界面一览
+
+<p align="center">
+  <img src="CountPaper/Assets/README-dashboard.jpg" alt="CountPaper 主界面，展示当月收支、快速记账和最近交易" width="920">
+</p>
+
 ## 为什么是 CountPaper
 
 - **文件归你所有。** 没有私有账务数据库、账户系统或自建云同步。
