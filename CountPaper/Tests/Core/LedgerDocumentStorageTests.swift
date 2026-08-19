@@ -28,6 +28,31 @@ final class LedgerDocumentStorageTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf: try XCTUnwrap(second.backupURL), encoding: .utf8), "first")
     }
 
+    func testBackupRetentionIsIsolatedPerLedger() throws {
+        let work = testDirectory.appendingPathComponent("Work.countpaper")
+        let life = testDirectory.appendingPathComponent("Life.countpaper")
+        let backups = testDirectory.appendingPathComponent("Backups", isDirectory: true)
+
+        try LedgerDocumentStorage.save("work-1", to: work, backupLimit: 20, recoveryDirectory: backups)
+        try LedgerDocumentStorage.save("work-2", to: work, backupLimit: 20, recoveryDirectory: backups)
+
+        try LedgerDocumentStorage.save("life-1", to: life, backupLimit: 2, recoveryDirectory: backups)
+        try LedgerDocumentStorage.save("life-2", to: life, backupLimit: 2, recoveryDirectory: backups)
+        try LedgerDocumentStorage.save("life-3", to: life, backupLimit: 2, recoveryDirectory: backups)
+        try LedgerDocumentStorage.save("life-4", to: life, backupLimit: 2, recoveryDirectory: backups)
+
+        // A subsequent work save must retain both work revisions even though
+        // the other document has already exhausted its smaller budget.
+        try LedgerDocumentStorage.save("work-3", to: work, backupLimit: 20, recoveryDirectory: backups)
+
+        let workBackups = try LedgerDocumentStorage.backups(for: work, recoveryDirectory: backups)
+        let lifeBackups = try LedgerDocumentStorage.backups(for: life, recoveryDirectory: backups)
+        XCTAssertEqual(workBackups.count, 2)
+        XCTAssertEqual(lifeBackups.count, 2)
+        XCTAssertEqual(Set(try workBackups.map { try String(contentsOf: $0, encoding: .utf8) }), Set(["work-1", "work-2"]))
+        XCTAssertEqual(Set(try lifeBackups.map { try String(contentsOf: $0, encoding: .utf8) }), Set(["life-2", "life-3"]))
+    }
+
     func testExternalSignatureDetectsReplacement() throws {
         let ledger = testDirectory.appendingPathComponent("Ledger.countpaper")
         try "initial".write(to: ledger, atomically: true, encoding: .utf8)

@@ -81,21 +81,23 @@ enum LedgerDocumentStorage {
         return LedgerFileSignature(modificationDate: date, size: size.intValue)
     }
 
-    /// Returns recoverable revisions for one ledger, newest first. The backup
-    /// name is intentionally self-contained so users can also copy it from
-    /// Application Support if an application-level recovery flow is ever
-    /// unavailable.
+    /// Returns recoverable revisions for one ledger, newest first. New
+    /// revisions live in a document-specific directory. Flat revisions made
+    /// by older CountPaper versions are included for recovery compatibility,
+    /// but never participate in pruning.
     static func backups(for documentURL: URL, recoveryDirectory: URL? = nil) throws -> [URL] {
-        let directory: URL
-        if let recoveryDirectory {
-            directory = recoveryDirectory
-        } else {
-            directory = try backupDirectory()
-        }
+        let root = try recoveryRoot(recoveryDirectory)
+        let directory = try documentBackupDirectory(for: documentURL, root: root)
         let suffix = "-\(documentURL.lastPathComponent)"
         let keys: Set<URLResourceKey> = [.contentModificationDateKey]
-        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
+        let manager = FileManager.default
+        let documentBackups = try manager.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
+        // Before document directories were introduced, every ledger shared a
+        // flat recovery folder. Keep those files visible so upgrading never
+        // hides a user's existing recovery history.
+        let legacyBackups = try manager.contentsOfDirectory(at: root, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
             .filter { $0.lastPathComponent.hasSuffix(suffix) }
+        return (documentBackups + legacyBackups)
             .sorted {
                 let left = (try? $0.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast
                 let right = (try? $1.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast
@@ -106,13 +108,8 @@ enum LedgerDocumentStorage {
     private static func backupCurrentVersion(of url: URL, limit: Int, recoveryDirectory: URL?) throws -> URL? {
         let manager = FileManager.default
         guard manager.fileExists(atPath: url.path) else { return nil }
-        let directory: URL
-        if let recoveryDirectory {
-            directory = recoveryDirectory
-            try manager.createDirectory(at: directory, withIntermediateDirectories: true)
-        } else {
-            directory = try backupDirectory()
-        }
+        let root = try recoveryRoot(recoveryDirectory)
+        let directory = try documentBackupDirectory(for: url, root: root)
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
         let backupURL = directory.appendingPathComponent("\(stamp)-\(UUID().uuidString.prefix(8))-\(url.lastPathComponent)")
         try manager.copyItem(at: url, to: backupURL)
@@ -120,6 +117,35 @@ enum LedgerDocumentStorage {
         return backupURL
     }
 
+    private static func recoveryRoot(_ recoveryDirectory: URL?) throws -> URL {
+        if let recoveryDirectory {
+            try FileManager.default.createDirectory(at: recoveryDirectory, withIntermediateDirectories: true)
+            return recoveryDirectory
+        }
+        return try backupDirectory()
+    }
+
+    /// A path-derived identifier prevents two documents with the same name
+    /// from sharing a retention budget while avoiding raw absolute paths in
+    /// Application Support. A move deliberately begins a new recovery series;
+    /// the prior files remain untouched in their old directory.
+    private static func documentBackupDirectory(for documentURL: URL, root: URL) throws -> URL {
+        let path = documentURL.standardizedFileURL.path
+        var hash: UInt64 = 14_695_981_039_346_656_037 // FNV-1a offset basis
+        for byte in path.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 1_099_511_628_211
+        }
+        let hex = String(hash, radix: 16)
+        let identifier = String(repeating: "0", count: max(0, 16 - hex.count)) + hex
+        let directory = root.appendingPathComponent("ledger-\(identifier)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    /// `directory` is always the current document's recovery directory, never
+    /// the shared Backups root. A busy ledger therefore cannot evict another
+    /// ledger's revisions.
     private static func pruneBackups(in directory: URL, keeping limit: Int) throws {
         let manager = FileManager.default
         let keys: Set<URLResourceKey> = [.contentModificationDateKey]
