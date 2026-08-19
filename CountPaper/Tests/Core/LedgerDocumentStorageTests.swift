@@ -64,4 +64,9 @@ final class LedgerDocumentStorageTests: XCTestCase {
         XCTAssertTrue(LedgerOutlineSafety.isFormEditableTransaction("- Lunch\n  - Expenses:Dining  20\n  - Assets:Cash  -20\n"))
         XCTAssertFalse(LedgerOutlineSafety.isFormEditableTransaction("- Lunch\n  - custom: preserve me\n  - Expenses:Dining  20\n  - Assets:Cash  -20\n"))
     }
+
+    func testSafeAutoCorrectionNeverConsumesAnInProgressListMarker() {
+        XCTAssertEqual(safeLedgerAutoCorrection("# 2026-08-20\n- ").text, "# 2026-08-20\n- ")
+        XCTAssertEqual(safeLedgerAutoCorrection("format:countpaper/0.2\ncurrency:CNY\n").text, "format: countpaper/0.2\ncurrency: CNY\n")
+    }
 }

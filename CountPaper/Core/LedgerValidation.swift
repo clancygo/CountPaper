@@ -1,5 +1,26 @@
 import Foundation
 
+struct LedgerAutoCorrection: Equatable {
+    let text: String
+    let changes: Int
+}
+
+/// Only normalizes unambiguous typography and directive spacing. It never
+/// adds, removes, reorders, or rebalances a transaction.
+func safeLedgerAutoCorrection(_ source: String) -> LedgerAutoCorrection {
+    var text = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\u{3000}", with: " ")
+    text = text.replacingOccurrences(of: "format:countpaper/0.2", with: "format: countpaper/0.2")
+    text = text.replacingOccurrences(of: "currency:CNY", with: "currency: CNY")
+    text = text.replacingOccurrences(of: "format：", with: "format:")
+    text = text.replacingOccurrences(of: "currency：", with: "currency:")
+    let normalized = text.components(separatedBy: "\n").map { line in
+        // A trailing space is meaningful while composing a Markdown item.
+        if line == "- " || line == "  - " { return line }
+        return line.replacingOccurrences(of: "[ \\t]+$", with: "", options: .regularExpression)
+    }.joined(separator: "\n")
+    return LedgerAutoCorrection(text: normalized, changes: normalized == source ? 0 : 1)
+}
+
 /// A parsed ledger and a form-editable ledger are deliberately different
 /// concepts.  This state is used to make conservative editing decisions: a
 /// user can always view source text, while structured controls only mutate

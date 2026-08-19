@@ -134,32 +134,6 @@ func smartLedgerTransaction(shortcut: String, accounts: [String], defaultAsset: 
     return nil
 }
 
-struct LedgerAutoCorrection: Equatable {
-    let text: String
-    let changes: Int
-}
-
-/// Only normalizes unambiguous typography and directive spacing. It never adds,
-/// removes, reorders, or rebalances a transaction.
-func safeLedgerAutoCorrection(_ source: String) -> LedgerAutoCorrection {
-    var text = source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\u{3000}", with: " ")
-    text = text.replacingOccurrences(of: "format:countpaper/0.2", with: "format: countpaper/0.2")
-    text = text.replacingOccurrences(of: "currency:CNY", with: "currency: CNY")
-    text = text.replacingOccurrences(of: "format：", with: "format:")
-    text = text.replacingOccurrences(of: "currency：", with: "currency:")
-    let lines = text.components(separatedBy: "\n")
-    let normalizedLines = lines.map { line in
-        // A trailing space is meaningful while the user is composing a new
-        // Markdown list item. Removing it changes "- " into "-" and forces a
-        // whole-document correction that disrupts the editor selection.
-        if line == "- " || line == "  - " { return line }
-        return line.replacingOccurrences(of: "[ \\t]+$", with: "", options: .regularExpression)
-    }
-    let normalized = normalizedLines.joined(separator: "\n")
-    let changes = normalized == source ? 0 : 1
-    return LedgerAutoCorrection(text: normalized, changes: changes)
-}
-
 func aggregateLedgerReports(_ reports: [LedgerReport]) -> LedgerReport {
     var combined = LedgerReport()
     var accountSet = Set<String>()
