@@ -62,6 +62,9 @@ final class LedgerDocumentStorageTests: XCTestCase {
 
         XCTAssertEqual(externalChangeAction(last: original, current: replacement, hasUnsavedChanges: false), .reload)
         XCTAssertEqual(externalChangeAction(last: original, current: replacement, hasUnsavedChanges: true), .conflict)
+        XCTAssertEqual(externalChangeAction(last: original, current: nil, hasUnsavedChanges: false), .deleted)
+        XCTAssertEqual(externalChangeAction(last: original, current: nil, hasUnsavedChanges: true), .deleted)
+        XCTAssertEqual(externalChangeAction(last: nil, current: nil, hasUnsavedChanges: false), .none)
     }
 
     func testAccountRootsAreSharedDomainRules() {

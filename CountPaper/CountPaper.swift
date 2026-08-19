@@ -4601,6 +4601,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             autosaveWorkItem?.cancel()
             statusLabel.stringValue = "检测到外部修改：自动保存已暂停，请重新载入或另存为"
             presentError(ui("检测到外部修改，自动保存已暂停。请重新载入，或使用“另存为”保留当前修改。", "An external change was detected and autosave has paused. Reload the file or use Save As to preserve your current changes."))
+        case .deleted:
+            // Keep the text in memory. A deleted source must never cause a
+            // silent overwrite at its old URL, and any unsaved work remains
+            // available through Save As.
+            document.markExternalConflict()
+            hasExternalConflict = document.hasExternalConflict
+            lastKnownFileSignature = document.signature
+            autosaveWorkItem?.cancel()
+            if document.isDirty {
+                statusLabel.stringValue = "磁盘文件已删除，但 CountPaper 中存在未保存修改"
+                presentError(ui("磁盘文件已删除，但 CountPaper 中存在未保存修改。自动保存已暂停；请使用“另存为”保留当前修改。", "The file was removed from disk, but CountPaper has unsaved changes. Autosave has paused; use Save As to preserve them."))
+            } else {
+                statusLabel.stringValue = "文件已从磁盘移除"
+                presentError(ui("文件已从磁盘移除。当前内容仍保留在 CountPaper 中；如需继续使用，请“另存为”。", "The file was removed from disk. Its current contents remain open in CountPaper; use Save As to continue."))
+            }
         }
     }
 

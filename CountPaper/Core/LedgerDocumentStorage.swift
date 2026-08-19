@@ -5,10 +5,12 @@ struct LedgerFileSignature: Equatable {
     let size: Int
 }
 
-enum ExternalChangeAction: Equatable { case none, reload, conflict }
+enum ExternalChangeAction: Equatable { case none, reload, conflict, deleted }
 
 func externalChangeAction(last: LedgerFileSignature?, current: LedgerFileSignature?, hasUnsavedChanges: Bool) -> ExternalChangeAction {
-    guard let last, let current, last != current else { return .none }
+    guard let last else { return .none }
+    guard let current else { return .deleted }
+    guard last != current else { return .none }
     return hasUnsavedChanges ? .conflict : .reload
 }
 
