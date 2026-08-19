@@ -25,3 +25,56 @@ func ledgerAccountKind(_ account: String) -> LedgerAccountKind? {
 func isLedgerAccount(_ account: String, _ kind: LedgerAccountKind) -> Bool {
     ledgerAccountKind(account) == kind
 }
+
+struct LedgerPosting: Equatable {
+    let account: String
+    let amount: Decimal
+    let line: Int
+}
+
+struct LedgerTransaction: Equatable {
+    let date: String
+    let time: String?
+    let summary: String
+    let flag: Character?
+    let postings: [LedgerPosting]
+    let payee: String?
+    let tags: [String]
+    let links: [String]
+    let startLine: Int
+    let endLine: Int
+}
+
+struct LedgerBalanceIssue: Equatable {
+    let date: String
+    let summary: String
+    let line: Int
+    let difference: Decimal
+}
+
+struct LedgerBudget: Equatable {
+    let month: String
+    let account: String
+    let amount: Decimal
+    let line: Int
+}
+
+struct LedgerReconciliation: Equatable {
+    let date: String
+    let account: String
+    /// The user-facing statement balance, not the account's debit/credit sign.
+    let statementBalance: Decimal
+    let line: Int
+}
+
+struct LedgerEvent: Equatable {
+    let date: String
+    let title: String
+    let line: Int
+}
+
+struct LedgerAccountNote: Equatable {
+    let account: String
+    let text: String
+    let line: Int
+}

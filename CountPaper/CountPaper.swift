@@ -228,13 +228,6 @@ struct LedgerReport {
     }
 }
 
-struct LedgerBalanceIssue: Equatable {
-    let date: String
-    let summary: String
-    let line: Int
-    let difference: Decimal
-}
-
 func aggregateLedgerReports(_ reports: [LedgerReport]) -> LedgerReport {
     var combined = LedgerReport()
     var accountSet = Set<String>()
@@ -456,25 +449,6 @@ func ledgerSyntaxTokens(in text: String) -> [LedgerSyntaxToken] {
         location = NSMaxRange(lineRange)
     }
     return tokens
-}
-
-struct LedgerPosting {
-    let account: String
-    let amount: Decimal
-    let line: Int
-}
-
-struct LedgerTransaction {
-    let date: String
-    let time: String?
-    let summary: String
-    let flag: Character?
-    let postings: [LedgerPosting]
-    let payee: String?
-    let tags: [String]
-    let links: [String]
-    let startLine: Int
-    let endLine: Int
 }
 
 enum LedgerTransactionUIKind { case expense, income, transfer, other }
@@ -879,33 +853,6 @@ func quickEntrySuggestions(report: LedgerReport, kind: QuickEntryKind, limit: In
         if output.count == limit { break }
     }
     return output
-}
-
-struct LedgerBudget: Equatable {
-    let month: String
-    let account: String
-    let amount: Decimal
-    let line: Int
-}
-
-struct LedgerReconciliation: Equatable {
-    let date: String
-    let account: String
-    /// The user-facing statement balance, not the account's internal debit/credit sign.
-    let statementBalance: Decimal
-    let line: Int
-}
-
-struct LedgerEvent: Equatable {
-    let date: String
-    let title: String
-    let line: Int
-}
-
-struct LedgerAccountNote: Equatable {
-    let account: String
-    let text: String
-    let line: Int
 }
 
 func displayBalance(_ raw: Decimal, account: String) -> Decimal {
