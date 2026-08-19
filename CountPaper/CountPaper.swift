@@ -2774,6 +2774,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         let recentColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("recentTransaction"))
         recentColumn.width = 724
         dashboardRecentTable.addTableColumn(recentColumn)
+        dashboardRecentTable.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         dashboardRecentTable.headerView = nil
         dashboardRecentTable.rowHeight = 48
         dashboardRecentTable.intercellSpacing = NSSize(width: 0, height: 0)
@@ -3123,6 +3124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             journalTable.addTableColumn(column)
         }
         journalTable.headerView = NSTableHeaderView(); journalTable.rowHeight = 34
+        journalTable.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         journalTable.usesAlternatingRowBackgroundColors = true; journalTable.dataSource = self; journalTable.delegate = self
         journalTable.target = self; journalTable.doubleAction = #selector(editSelectedJournalTransaction(_:))
         journalTable.setAccessibilityLabel(ui("日记账交易列表", "Journal transaction list"))
@@ -5203,26 +5205,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
         let entry = dashboardRecentTransactions[row]
         let info = ledgerTransactionUIInfo(entry)
+        let cellWidth = tableColumn?.width ?? tableView.bounds.width
         let primary = NSTextField(labelWithString: ledgerTransactionDetail(entry))
         primary.font = .systemFont(ofSize: 13, weight: .medium)
         primary.textColor = CountPaperTheme.ink
         primary.lineBreakMode = .byTruncatingTail
-        primary.frame = NSRect(x: 2, y: 25, width: max(100, tableView.bounds.width - 146), height: 18)
+        primary.frame = NSRect(x: 2, y: 25, width: max(100, cellWidth - 146), height: 18)
         primary.autoresizingMask = [.width]
         let secondary = NSTextField(labelWithString: "\(ledgerTransactionDateTime(entry))  ·  \(info.context(english: appLanguage == .english))")
         secondary.font = .systemFont(ofSize: 11.5)
         secondary.textColor = CountPaperTheme.secondaryInk
         secondary.lineBreakMode = .byTruncatingTail
-        secondary.frame = NSRect(x: 2, y: 7, width: max(100, tableView.bounds.width - 146), height: 16)
+        secondary.frame = NSRect(x: 2, y: 7, width: max(100, cellWidth - 146), height: 16)
         secondary.autoresizingMask = [.width]
         let amountPrefix: String = switch info.kind { case .expense: "−"; case .income: "+"; case .transfer, .other: "" }
         let amount = NSTextField(labelWithString: "\(amountPrefix)\(LedgerParser.format(abs(info.amount)))")
         amount.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         amount.textColor = info.kind == .income ? CountPaperTheme.blue : CountPaperTheme.ink
         amount.alignment = .right
-        amount.frame = NSRect(x: max(0, tableView.bounds.width - 128), y: 17, width: 122, height: 20)
+        amount.frame = NSRect(x: max(0, cellWidth - 128), y: 17, width: 122, height: 20)
         amount.autoresizingMask = [.minXMargin]
-        let rule = NSView(frame: NSRect(x: 0, y: 0, width: tableView.bounds.width, height: 1))
+        let rule = NSView(frame: NSRect(x: 0, y: 0, width: cellWidth, height: 1))
         rule.wantsLayer = true; rule.layer?.backgroundColor = CountPaperTheme.border.cgColor; rule.autoresizingMask = [.width]
         cell.addSubview(primary); cell.addSubview(secondary); cell.addSubview(amount); cell.addSubview(rule)
         return cell
