@@ -161,6 +161,26 @@ struct LedgerParserTests {
         expect(outlineNewlineInsertion(in: "- 午餐", selection: NSRange(location: 4, length: 0)) == "\n- ", "交易条目回车应新建同级交易")
         expect(outlineNewlineInsertion(in: "  - 费用:餐饮  32.50", selection: NSRange(location: 15, length: 0)) == "\n  - ", "分录回车应新建同级缩进条目")
 
+        let storageTestDirectory = FileManager.default.temporaryDirectory.appendingPathComponent("CountPaperStorageTests-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: storageTestDirectory) }
+        let storageTestURL = storageTestDirectory.appendingPathComponent("ledger.countpaper")
+        let storageBackups = storageTestDirectory.appendingPathComponent("Backups", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: storageTestDirectory, withIntermediateDirectories: true)
+            let firstSave = try LedgerDocumentStorage.save("first", to: storageTestURL, recoveryDirectory: storageBackups)
+            let initialSavedText = try String(contentsOf: storageTestURL, encoding: .utf8)
+            expect(firstSave.backupURL == nil && initialSavedText == "first", "首次保存应原子创建完整账本")
+            let secondSave = try LedgerDocumentStorage.save("second", to: storageTestURL, recoveryDirectory: storageBackups)
+            let replacedText = try String(contentsOf: storageTestURL, encoding: .utf8)
+            expect(replacedText == "second", "安全保存必须替换为完整的新版本")
+            expect(secondSave.backupURL.flatMap { try? String(contentsOf: $0, encoding: .utf8) } == "first", "覆盖前必须保留可恢复的上一版本")
+            _ = try LedgerDocumentStorage.save("third", to: storageTestURL, backupLimit: 1, recoveryDirectory: storageBackups)
+            let backupCount = try FileManager.default.contentsOfDirectory(at: storageBackups, includingPropertiesForKeys: nil).count
+            expect(backupCount == 1, "恢复备份应遵守保留上限")
+        } catch {
+            expect(false, "安全保存测试失败：\(error.localizedDescription)")
+        }
+
         let manyTransactions = String(repeating: "\n# 2026-08-03\n- 测试\n  - 费用:餐饮  1.00\n  - 资产:现金  -1.00\n", count: 10_000)
         let started = Date()
         let largeReport = LedgerParser.parse(sample + manyTransactions)

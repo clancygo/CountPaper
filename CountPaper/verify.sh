@@ -11,9 +11,11 @@ fi
 test_binary="$(mktemp /private/tmp/CountPaperTests.XXXXXX)"
 trap 'rm -f "$test_binary"' EXIT
 
+setopt null_glob
+test_sources=("$script_dir/CountPaper.swift" "$script_dir"/Ledger*.swift "$script_dir"/Core/*.swift "$script_dir/Tests/LedgerParserTests.swift")
 DEVELOPER_DIR="$developer_dir" xcrun swiftc -O -framework Cocoa \
   -module-cache-path "$script_dir/build/module-cache" \
-  "$script_dir/CountPaper.swift" "$script_dir"/Ledger*.swift "$script_dir/Tests/LedgerParserTests.swift" \
+  "${test_sources[@]}" \
   -o "$test_binary"
 "$test_binary"
 

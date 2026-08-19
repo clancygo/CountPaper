@@ -3473,7 +3473,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             }
             if let url = ledgerSessions[index].url {
                 do {
-                    try ledgerSessions[index].text.write(to: url, atomically: true, encoding: .utf8)
+                    try LedgerDocumentStorage.save(ledgerSessions[index].text, to: url)
                     ledgerSessions[index].isDirty = false
                     ledgerSessions[index].signature = fileSignature(for: url)
                     rememberRecentDocument(url)
@@ -3794,7 +3794,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let text = starterTemplate(for: appLanguage)
         do {
-            try text.write(to: url, atomically: true, encoding: .utf8)
+            try LedgerDocumentStorage.save(text, to: url)
             persistActiveLedgerSession()
             ledgerSessions.append(LedgerSession(url: url, text: text, signature: fileSignature(for: url)))
             activeLedgerIndex = ledgerSessions.count - 1
@@ -3972,7 +3972,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             presentError("检测到文件已被外部修改。请先“从磁盘重新载入”，或使用“另存为”保留本地版本。")
             return
         }
-        do { try textView.string.write(to: url, atomically: true, encoding: .utf8); isDirty = false; lastKnownFileSignature = fileSignature(for: url); persistActiveLedgerSession(); rememberRecentDocument(url); window.title = "\(url.lastPathComponent) — CountPaper"; updateDocumentChrome(); statusLabel.stringValue = "已保存到 \(url.path)" }
+        do {
+            let result = try LedgerDocumentStorage.save(textView.string, to: url)
+            isDirty = false
+            lastKnownFileSignature = fileSignature(for: url)
+            persistActiveLedgerSession()
+            rememberRecentDocument(url)
+            window.title = "\(url.lastPathComponent) — CountPaper"
+            updateDocumentChrome()
+            statusLabel.stringValue = result.backupURL == nil
+                ? ui("已保存到 \(url.path)", "Saved to \(url.path)")
+                : ui("已保存；可从“文件 > 还原”恢复上一版本", "Saved; the previous version is available from File > Revert")
+        }
         catch { presentError("无法保存文件：\(error.localizedDescription)") }
     }
 
@@ -4898,7 +4909,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private func autosave() {
         guard isDirty, !hasExternalConflict, let url = documentURL else { return }
         do {
-            try textView.string.write(to: url, atomically: true, encoding: .utf8)
+            try LedgerDocumentStorage.save(textView.string, to: url)
             isDirty = false
             lastKnownFileSignature = fileSignature(for: url)
             persistActiveLedgerSession()
