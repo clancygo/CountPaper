@@ -12,7 +12,7 @@ if [[ ! -d "$developer_dir" ]]; then
 fi
 rm -rf "$app_path" "$stage_dir"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources" "$stage_dir"
-DEVELOPER_DIR="$developer_dir" xcrun swiftc -O -framework Cocoa -module-cache-path "$build_dir/module-cache" "$script_dir/CountPaper.swift" "$script_dir/AppMain.swift" -o "$app_path/Contents/MacOS/CountPaper"
+DEVELOPER_DIR="$developer_dir" xcrun swiftc -O -framework Cocoa -module-cache-path "$build_dir/module-cache" "$script_dir"/*.swift -o "$app_path/Contents/MacOS/CountPaper"
 cp "$script_dir/Info.plist" "$app_path/Contents/Info.plist"
 if [[ -f "$script_dir/Assets/CountPaperIcon.icns" ]]; then
   cp "$script_dir/Assets/CountPaperIcon.icns" "$app_path/Contents/Resources/CountPaperIcon.icns"

@@ -621,31 +621,6 @@ func signedLedgerAmount(_ value: Decimal) -> String {
     value > .zero ? "+\(LedgerParser.format(value))" : LedgerParser.format(value)
 }
 
-struct ReconciliationRow {
-    let entry: LedgerTransaction
-    let accountSummary: String
-}
-
-/// The native reconciliation table consumes this model instead of parsing the
-/// presentation text. Each row is produced in one chronological balance pass.
-func reconciliationRows(entries: [LedgerTransaction], accounts: [String], newestFirst: Bool) -> [ReconciliationRow] {
-    let tracked = accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }.sorted()
-    var balances: [String: Decimal] = [:]
-    var rows: [ReconciliationRow] = []
-    for entry in chronologicallyOrderedTransactions(entries) {
-        var changed: [String: Decimal] = [:]
-        for posting in entry.postings where tracked.contains(posting.account) {
-            balances[posting.account, default: .zero] += posting.amount
-            changed[posting.account, default: .zero] += posting.amount
-        }
-        let summary = tracked.compactMap { account -> String? in
-            guard let delta = changed[account], delta != .zero else { return nil }
-            return "\(ledgerAccountDisplayName(account))  \(LedgerParser.format(displayBalance(balances[account, default: .zero], account: account))) (\(signedLedgerAmount(displayBalance(delta, account: account))))"
-        }.joined(separator: "  ·  ")
-        rows.append(ReconciliationRow(entry: entry, accountSummary: summary))
-    }
-    return newestFirst ? Array(rows.reversed()) : rows
-}
 
 func reconciliationModeText(entries: [LedgerTransaction], accounts: [String], english: Bool = false, newestFirst: Bool = false) -> String {
     let tracked = accounts.filter { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }.sorted()
@@ -1677,22 +1652,6 @@ final class DashboardRecentTableView: NSTableView {
             return
         }
         super.keyDown(with: event)
-    }
-}
-
-/// Display-only hierarchy derived from the plain-text account declarations.
-/// It deliberately stores no ledger state: every balance and note continues to
-/// come from the active file on each parse.
-final class AccountOutlineNode {
-    let title: String
-    let path: String
-    var account: String?
-    var balance: Decimal = .zero
-    var note: String?
-    var children: [AccountOutlineNode] = []
-
-    init(title: String, path: String, account: String? = nil) {
-        self.title = title; self.path = path; self.account = account
     }
 }
 

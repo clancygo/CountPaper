@@ -13,7 +13,7 @@ trap 'rm -f "$test_binary"' EXIT
 
 DEVELOPER_DIR="$developer_dir" xcrun swiftc -O -framework Cocoa \
   -module-cache-path "$script_dir/build/module-cache" \
-  "$script_dir/CountPaper.swift" "$script_dir/Tests/LedgerParserTests.swift" \
+  "$script_dir/CountPaper.swift" "$script_dir"/Ledger*.swift "$script_dir/Tests/LedgerParserTests.swift" \
   -o "$test_binary"
 "$test_binary"
 
