@@ -255,7 +255,7 @@ struct LedgerParserTests {
 
         let manyTransactions = String(repeating: "\n# 2026-08-03\n- 测试\n  - 费用:餐饮  1.00\n  - 资产:现金  -1.00\n", count: 10_000)
         let started = Date()
-        let largeReport = LedgerParser.parse(sample + manyTransactions)
+        let largeReport = LedgerCoreParser.parse(sample + manyTransactions)
         let elapsed = Date().timeIntervalSince(started)
         expect(largeReport.transactions == 10_002, "大账本交易数应正确")
         expect(elapsed < 5, "一万笔交易解析耗时过长：\(elapsed)s")
