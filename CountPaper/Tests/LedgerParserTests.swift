@@ -177,6 +177,14 @@ struct LedgerParserTests {
             _ = try LedgerDocumentStorage.save("third", to: storageTestURL, backupLimit: 1, recoveryDirectory: storageBackups)
             let backupCount = try FileManager.default.contentsOfDirectory(at: storageBackups, includingPropertiesForKeys: nil).count
             expect(backupCount == 1, "恢复备份应遵守保留上限")
+
+            let document = LedgerDocument(url: storageTestURL, text: "third", signature: LedgerDocument.fileSignature(for: storageTestURL))
+            expect(document.report.transactions == 0 && !document.isDirty, "文档模型应同时持有已解析的账本状态与干净状态")
+            document.replaceText("fourth", markingDirty: true)
+            expect(document.isDirty && document.text == "fourth", "文档模型应统一管理文本和未保存状态")
+            _ = try document.save(recoveryDirectory: storageBackups)
+            let documentSavedText = try String(contentsOf: storageTestURL, encoding: .utf8)
+            expect(!document.isDirty && documentSavedText == "fourth", "文档模型保存后应更新持久化状态")
         } catch {
             expect(false, "安全保存测试失败：\(error.localizedDescription)")
         }

@@ -1091,28 +1091,29 @@ final class LedgerTextView: NSTextView {
     }
 }
 
-struct LedgerFileSignature: Equatable {
-    let modificationDate: Date
-    let size: Int
-}
-
 struct LedgerSession {
-    let id: UUID
-    var url: URL?
-    var text: String
-    var isDirty: Bool
-    var signature: LedgerFileSignature?
-    var hasExternalConflict: Bool
+    let document: LedgerDocument
     var selection: NSRange
 
     init(url: URL?, text: String, isDirty: Bool = false, signature: LedgerFileSignature? = nil, hasExternalConflict: Bool = false, selection: NSRange = NSRange(location: 0, length: 0)) {
-        self.id = UUID()
-        self.url = url
-        self.text = text
-        self.isDirty = isDirty
-        self.signature = signature
-        self.hasExternalConflict = hasExternalConflict
+        self.document = LedgerDocument(url: url, text: text, isDirty: isDirty, signature: signature, hasExternalConflict: hasExternalConflict)
         self.selection = selection
+    }
+
+    var id: UUID { document.id }
+    var url: URL? { get { document.url } set { document.url = newValue } }
+    var text: String { get { document.text } set { document.replaceText(newValue, markingDirty: false) } }
+    var isDirty: Bool {
+        get { document.isDirty }
+        set { document.update(url: document.url, signature: document.signature, isDirty: newValue, hasExternalConflict: document.hasExternalConflict) }
+    }
+    var signature: LedgerFileSignature? {
+        get { document.signature }
+        set { document.update(url: document.url, signature: newValue, isDirty: document.isDirty, hasExternalConflict: document.hasExternalConflict) }
+    }
+    var hasExternalConflict: Bool {
+        get { document.hasExternalConflict }
+        set { document.update(url: document.url, signature: document.signature, isDirty: document.isDirty, hasExternalConflict: newValue) }
     }
 }
 
@@ -1136,13 +1137,6 @@ func uniqueLedgerDocumentURLs(_ urls: [URL]) -> [URL] {
 
 func shouldReplacePlaceholderLedger(_ sessions: [LedgerSession]) -> Bool {
     sessions.count == 1 && sessions[0].url == nil && !sessions[0].isDirty
-}
-
-enum ExternalChangeAction: Equatable { case none, reload, conflict }
-
-func externalChangeAction(last: LedgerFileSignature?, current: LedgerFileSignature?, hasUnsavedChanges: Bool) -> ExternalChangeAction {
-    guard let last, let current, last != current else { return .none }
-    return hasUnsavedChanges ? .conflict : .reload
 }
 
 func diagnosticLineNumbers(in diagnostics: [String]) -> [Int] {
@@ -3473,9 +3467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             }
             if let url = ledgerSessions[index].url {
                 do {
-                    try LedgerDocumentStorage.save(ledgerSessions[index].text, to: url)
-                    ledgerSessions[index].isDirty = false
-                    ledgerSessions[index].signature = fileSignature(for: url)
+                    try ledgerSessions[index].document.save(to: url)
                     rememberRecentDocument(url)
                 } catch {
                     activeLedgerIndex = index
@@ -3885,13 +3877,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     }
 
     private func reloadActiveDocumentFromDisk() {
-        guard let url = documentURL else { return }
+        guard ledgerSessions.indices.contains(activeLedgerIndex), documentURL != nil else { return }
         do {
-            let text = try String(contentsOf: url, encoding: .utf8)
-            textView.string = text
-            isDirty = false
-            hasExternalConflict = false
-            lastKnownFileSignature = fileSignature(for: url)
+            let document = ledgerSessions[activeLedgerIndex].document
+            try document.reload()
+            textView.string = document.text
+            isDirty = document.isDirty
+            hasExternalConflict = document.hasExternalConflict
+            lastKnownFileSignature = document.signature
             persistActiveLedgerSession()
             updateDocumentChrome()
             scheduleParse(immediately: true)
@@ -3973,9 +3966,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             return
         }
         do {
-            let result = try LedgerDocumentStorage.save(textView.string, to: url)
-            isDirty = false
-            lastKnownFileSignature = fileSignature(for: url)
+            persistActiveLedgerSession()
+            guard ledgerSessions.indices.contains(activeLedgerIndex) else { return }
+            let document = ledgerSessions[activeLedgerIndex].document
+            let result = try document.save(to: url)
+            documentURL = document.url
+            isDirty = document.isDirty
+            hasExternalConflict = document.hasExternalConflict
+            lastKnownFileSignature = document.signature
             persistActiveLedgerSession()
             rememberRecentDocument(url)
             window.title = "\(url.lastPathComponent) — CountPaper"
@@ -4909,9 +4907,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private func autosave() {
         guard isDirty, !hasExternalConflict, let url = documentURL else { return }
         do {
-            try LedgerDocumentStorage.save(textView.string, to: url)
-            isDirty = false
-            lastKnownFileSignature = fileSignature(for: url)
+            persistActiveLedgerSession()
+            guard ledgerSessions.indices.contains(activeLedgerIndex) else { return }
+            let document = ledgerSessions[activeLedgerIndex].document
+            try document.save(to: url)
+            isDirty = document.isDirty
+            lastKnownFileSignature = document.signature
             persistActiveLedgerSession()
             updateDocumentChrome()
             statusLabel.stringValue = "已自动保存"
@@ -4921,10 +4922,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     }
 
     private func fileSignature(for url: URL) -> LedgerFileSignature? {
-        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              let date = values.contentModificationDate,
-              let size = values.fileSize else { return nil }
-        return LedgerFileSignature(modificationDate: date, size: size)
+        LedgerDocument.fileSignature(for: url)
     }
 
     @objc private func checkForExternalChanges() {

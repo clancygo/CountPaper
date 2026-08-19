@@ -1,5 +1,17 @@
 import Foundation
 
+struct LedgerFileSignature: Equatable {
+    let modificationDate: Date
+    let size: Int
+}
+
+enum ExternalChangeAction: Equatable { case none, reload, conflict }
+
+func externalChangeAction(last: LedgerFileSignature?, current: LedgerFileSignature?, hasUnsavedChanges: Bool) -> ExternalChangeAction {
+    guard let last, let current, last != current else { return .none }
+    return hasUnsavedChanges ? .conflict : .reload
+}
+
 /// Foundation-only persistence for a CountPaper document.
 ///
 /// The AppKit layer supplies presentation, parsing and conflict UI. This type
