@@ -2682,9 +2682,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         stack.addArrangedSubview(dashboardTitleLabel)
         // Monthly figures deliberately sit behind recording: they are useful
         // context, not the first task a person opens the app to perform.
-        let summaryCard = CountPaperSurfaceView(fill: CountPaperTheme.softSurface, stroke: CountPaperTheme.border, radius: 12)
+        // A paper-like information band: typography and hairline dividers do
+        // the grouping, rather than another elevated dashboard card.
+        let summaryCard = CountPaperSurfaceView(fill: CountPaperTheme.canvas)
         summaryCard.widthAnchor.constraint(equalToConstant: 724).isActive = true
-        summaryCard.heightAnchor.constraint(equalToConstant: 98).isActive = true
+        summaryCard.heightAnchor.constraint(equalToConstant: 78).isActive = true
         let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.alignment = .centerY; statRow.spacing = 0
         statRow.translatesAutoresizingMaskIntoConstraints = false
         let metricLabels = [dashboardIncomeLabel, dashboardExpenseLabel, dashboardNetLabel]
@@ -2692,12 +2694,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             label.font = .systemFont(ofSize: 14, weight: .medium)
             label.alignment = .center
             label.widthAnchor.constraint(equalToConstant: 240).isActive = true
-            label.heightAnchor.constraint(equalToConstant: 70).isActive = true
+            label.heightAnchor.constraint(equalToConstant: 56).isActive = true
             statRow.addArrangedSubview(label)
             if index < metricLabels.count - 1 {
                 let separator = CountPaperSurfaceView(fill: CountPaperTheme.border)
                 separator.widthAnchor.constraint(equalToConstant: 1).isActive = true
-                separator.heightAnchor.constraint(equalToConstant: 42).isActive = true
+                separator.heightAnchor.constraint(equalToConstant: 34).isActive = true
                 statRow.addArrangedSubview(separator)
             }
         }
