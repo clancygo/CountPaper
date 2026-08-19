@@ -2390,6 +2390,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private let journalSearchField = NSSearchField(frame: .zero)
     private let journalSearchScope = NSPopUpButton(frame: .zero, pullsDown: false)
     private let journalStatusFilter = NSPopUpButton(frame: .zero, pullsDown: false)
+    private let journalTable = DashboardRecentTableView()
+    private weak var journalScrollView: NSScrollView?
+    private var displayedJournalTransactions: [LedgerTransaction] = []
     private var journalQuery = ""
     private var journalSearchFieldScope: JournalSearchField = .all
     private var journalStatus: JournalStatusFilter = .all
@@ -3109,6 +3112,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         reportView.setAccessibilityLabel("账本概览")
         reportView.onReportClick = { [weak self] offset in self?.handleReportClick(at: offset) }
         reportView.isEditable = false; reportView.delegate = self; reportView.font = .systemFont(ofSize: 14, weight: .regular); reportScrollView.documentView = reportView; reportStack.addArrangedSubview(reportScrollView); reportContainer.addSubview(reportStack)
+        let journalScroll = NSScrollView()
+        journalScroll.hasVerticalScroller = true; journalScroll.autohidesScrollers = true; journalScroll.borderType = .noBorder
+        let journalColumns: [(String, String, CGFloat)] = [
+            ("journalDate", ui("日期", "Date"), 128),
+            ("journalDetail", ui("摘要", "Description"), 248),
+            ("journalAccount", ui("分类 / 账户", "Category / Account"), 220),
+            ("journalTags", ui("标签", "Tags"), 118),
+            ("journalAmount", ui("金额", "Amount"), 96)
+        ]
+        for (identifier, title, width) in journalColumns {
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier)); column.title = title; column.width = width
+            journalTable.addTableColumn(column)
+        }
+        journalTable.headerView = NSTableHeaderView(); journalTable.rowHeight = 34
+        journalTable.usesAlternatingRowBackgroundColors = true; journalTable.dataSource = self; journalTable.delegate = self
+        journalTable.target = self; journalTable.doubleAction = #selector(editSelectedJournalTransaction(_:))
+        journalTable.setAccessibilityLabel(ui("日记账交易列表", "Journal transaction list"))
+        journalTable.onDeleteKey = { [weak self] in self?.deleteSelectedJournalTransaction(nil) }
+        let journalMenu = NSMenu(title: ui("交易操作", "Transaction Actions"))
+        let journalEdit = journalMenu.addItem(withTitle: ui("修改…", "Edit…"), action: #selector(editSelectedJournalTransaction(_:)), keyEquivalent: "")
+        journalEdit.target = self
+        let journalDelete = journalMenu.addItem(withTitle: ui("删除", "Delete"), action: #selector(deleteSelectedJournalTransaction(_:)), keyEquivalent: "")
+        journalDelete.target = self
+        journalTable.menu = journalMenu
+        journalScroll.documentView = journalTable; journalScroll.isHidden = true
+        journalScrollView = journalScroll; reportStack.addArrangedSubview(journalScroll)
         NSLayoutConstraint.activate([
             inspectorHeader.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             inspectorTitleLabel.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
@@ -3117,7 +3146,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             reportFilters.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             accountActions.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             reportChartView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
-            reportScrollView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
+            reportScrollView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
+            journalScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
         ])
         contentHost.addSubview(dashboard)
         contentHost.addSubview(reportContainer)
@@ -4987,6 +5017,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         journalSearchScope.isHidden = sidePanelMode != .journal
         journalStatusFilter.isHidden = sidePanelMode != .journal
         journalFilterContainer?.isHidden = sidePanelMode != .journal
+        journalScrollView?.isHidden = sidePanelMode != .journal
         reportFilterContainer?.isHidden = sidePanelMode != .reports
         accountActionContainer?.isHidden = sidePanelMode != .accounts
         reconciliationOrderContainer?.isHidden = sidePanelMode != .reconciliation
@@ -5003,8 +5034,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             reportNavigationLines = []
             output = overviewText(for: report)
         case .journal:
-            reportNavigationLines = Array(report.journal(matching: journalQuery, field: journalSearchFieldScope, status: journalStatus).reversed()).map(\.startLine)
-            output = journalText(for: report)
+            displayedJournalTransactions = report.journal(matching: journalQuery, field: journalSearchFieldScope, status: journalStatus)
+                .sorted { $0.date == $1.date ? $0.startLine > $1.startLine : $0.date > $1.date }
+            reportNavigationLines = displayedJournalTransactions.map(\.startLine)
+            journalTable.reloadData()
+            output = ""
         case .reconciliation:
             let hasTrackedAccounts = report.accounts.contains { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }
             var navigation = chronologicallyOrderedTransactions(report.journal).map(\.startLine)
@@ -5028,6 +5062,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
         reportView.setAccessibilityLabel(reportAccessibilityLabel)
         reportView.string = output
+        reportView.enclosingScrollView?.isHidden = sidePanelMode == .journal
         applyReportTypography()
         reportChartView.isHidden = sidePanelMode != .reports
         reportChartView.monthly = monthlyPersonalSummaries(entries: currentReportEntries(in: report))
@@ -5081,10 +5116,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int {
-        tableView === dashboardRecentTable ? max(1, dashboardRecentTransactions.count) : 0
+        if tableView === dashboardRecentTable { return max(1, dashboardRecentTransactions.count) }
+        if tableView === journalTable { return displayedJournalTransactions.count }
+        return 0
     }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        if tableView === journalTable {
+            guard displayedJournalTransactions.indices.contains(row), let identifier = tableColumn?.identifier else { return nil }
+            let entry = displayedJournalTransactions[row]
+            let value: String = switch identifier.rawValue {
+            case "journalDate": ledgerTransactionDateTime(entry)
+            case "journalDetail": ledgerTransactionDetail(entry)
+            case "journalAccount": ledgerTransactionUIInfo(entry).context(english: appLanguage == .english)
+            case "journalTags": entry.tags.map { "#\($0)" }.joined(separator: " ")
+            case "journalAmount": LedgerParser.format(ledgerTransactionDisplayAmount(entry))
+            default: ""
+            }
+            let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
+            cell.identifier = identifier; cell.subviews.forEach { $0.removeFromSuperview() }
+            let label = NSTextField(labelWithString: value)
+            label.lineBreakMode = .byTruncatingTail; label.textColor = CountPaperTheme.ink
+            label.font = identifier.rawValue == "journalAmount" ? .monospacedDigitSystemFont(ofSize: 12, weight: .medium) : .systemFont(ofSize: 12)
+            label.alignment = identifier.rawValue == "journalAmount" ? .right : .left
+            label.frame = NSRect(x: 5, y: 7, width: max(30, (tableColumn?.width ?? 100) - 10), height: 19); label.autoresizingMask = [.width]
+            cell.addSubview(label)
+            return cell
+        }
         guard tableView === dashboardRecentTable else { return nil }
         let identifier = NSUserInterfaceItemIdentifier("recentTransaction")
         let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
@@ -5137,6 +5195,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
     }
 
+    @objc private func editSelectedJournalTransaction(_ sender: Any?) {
+        guard displayedJournalTransactions.indices.contains(journalTable.selectedRow) else { return }
+        beginEditingDashboardTransaction(displayedJournalTransactions[journalTable.selectedRow])
+    }
+
+    @objc private func deleteSelectedJournalTransaction(_ sender: Any?) {
+        guard displayedJournalTransactions.indices.contains(journalTable.selectedRow) else { return }
+        _ = deleteDashboardTransaction(displayedJournalTransactions[journalTable.selectedRow])
+    }
+
     @objc private func showTransactionBrowser(_ sender: Any?) {
         if transactionBrowserController == nil {
             let controller = TransactionBrowserController(transactions: latestReport.journal, english: appLanguage == .english)
@@ -5175,6 +5243,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     }
 
     private func beginEditingDashboardTransaction(_ transaction: LedgerTransaction) {
+        // A transaction can be opened from Journal or the all-transactions
+        // browser. The dedicated recording workspace must be visible before
+        // moving focus into its fields.
+        if sidePanelMode != .overview {
+            sidePanelMode = .overview
+            updateSidebarSelection()
+            apply(report: latestReport)
+        }
         guard let components = editableComponents(for: transaction),
               let range = ledgerSourceRange(in: textView.string, fromLine: transaction.startLine, throughLine: transaction.endLine) else { return }
         let original = (textView.string as NSString).substring(with: range)
