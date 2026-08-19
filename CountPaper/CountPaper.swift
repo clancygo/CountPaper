@@ -2642,6 +2642,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         let ledger = NSMenuItem(title: ui("账本", "Ledger"), action: nil, keyEquivalent: ""); menu.addItem(ledger)
         let ledgerMenu = NSMenu(title: ui("账本", "Ledger")); ledger.submenu = ledgerMenu
         ledgerMenu.addItem(withTitle: ui("记一笔…", "Record Transaction…"), action: #selector(recordTransaction(_:)), keyEquivalent: "e")
+        ledgerMenu.addItem(withTitle: ui("记一笔支出", "Record Expense"), action: #selector(addExpense(_:)), keyEquivalent: "1")
+        ledgerMenu.addItem(withTitle: ui("记一笔收入", "Record Income"), action: #selector(addIncome(_:)), keyEquivalent: "2")
+        ledgerMenu.addItem(withTitle: ui("记录转账", "Record Transfer"), action: #selector(focusTransferInlineEntry(_:)), keyEquivalent: "3")
         ledgerMenu.addItem(.separator())
         ledgerMenu.addItem(withTitle: ui("添加账户…", "Add Account…"), action: #selector(addAccount(_:)), keyEquivalent: "a")
         ledgerMenu.addItem(withTitle: ui("调整账户余额…", "Adjust Account Balance…"), action: #selector(adjustAccountBalance(_:)), keyEquivalent: "")
@@ -4047,6 +4050,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     @objc private func recordTransaction(_ sender: Any?) { focusInlineEntry(kind: .expense) }
     @objc private func addExpense(_ sender: Any?) { focusInlineEntry(kind: .expense) }
     @objc private func addIncome(_ sender: Any?) { focusInlineEntry(kind: .income) }
+    @objc private func focusTransferInlineEntry(_ sender: Any?) { focusInlineEntry(kind: .transfer) }
 
     private func focusInlineEntry(kind: QuickEntryKind) {
         sidePanelMode = .overview
@@ -4056,7 +4060,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         window.makeKeyAndOrderFront(nil)
         DispatchQueue.main.async { [weak self] in self?.window.makeFirstResponder(self?.inlineAmountField) }
     }
-    @objc private func addTransfer(_ sender: Any?) { presentQuickEntry(kind: .transfer) }
+    @objc private func addTransfer(_ sender: Any?) { focusInlineEntry(kind: .transfer) }
 
     @objc private func editTransactionAtCursor(_ sender: Any?) {
         let raw = textView.string
