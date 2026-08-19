@@ -4926,21 +4926,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     }
 
     @objc private func checkForExternalChanges() {
-        guard let url = documentURL else { return }
-        let signature = fileSignature(for: url)
-        let action = externalChangeAction(last: lastKnownFileSignature, current: signature, hasUnsavedChanges: isDirty)
+        guard documentURL != nil, ledgerSessions.indices.contains(activeLedgerIndex) else { return }
+        persistActiveLedgerSession()
+        let document = ledgerSessions[activeLedgerIndex].document
+        let action = document.pendingExternalChangeAction()
         switch action {
         case .none: break
         case .reload:
             reloadActiveDocumentFromDisk()
             statusLabel.stringValue = "已重新载入外部修改"
         case .conflict:
-            hasExternalConflict = true
             // Record the observed version before presenting the warning. This
             // avoids repeatedly presenting the same conflict every monitor
             // interval while preserving the local session for Save As.
-            lastKnownFileSignature = signature
-            persistActiveLedgerSession()
+            document.markExternalConflict()
+            hasExternalConflict = document.hasExternalConflict
+            lastKnownFileSignature = document.signature
             autosaveWorkItem?.cancel()
             statusLabel.stringValue = "检测到外部修改：自动保存已暂停，请重新载入或另存为"
             presentError(ui("检测到外部修改，自动保存已暂停。请重新载入，或使用“另存为”保留当前修改。", "An external change was detected and autosave has paused. Reload the file or use Save As to preserve your current changes."))

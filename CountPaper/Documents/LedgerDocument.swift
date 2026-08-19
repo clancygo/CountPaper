@@ -69,9 +69,9 @@ final class LedgerDocument {
     }
 
     static func fileSignature(for url: URL) -> LedgerFileSignature? {
-        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
-              let date = values.contentModificationDate,
-              let size = values.fileSize else { return nil }
-        return LedgerFileSignature(modificationDate: date, size: size)
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let date = attributes[.modificationDate] as? Date,
+              let size = attributes[.size] as? NSNumber else { return nil }
+        return LedgerFileSignature(modificationDate: date, size: size.intValue)
     }
 }

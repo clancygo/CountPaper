@@ -185,6 +185,12 @@ struct LedgerParserTests {
             _ = try document.save(recoveryDirectory: storageBackups)
             let documentSavedText = try String(contentsOf: storageTestURL, encoding: .utf8)
             expect(!document.isDirty && documentSavedText == "fourth", "文档模型保存后应更新持久化状态")
+            try "external version with a different length".write(to: storageTestURL, atomically: true, encoding: .utf8)
+            expect(document.signature != LedgerDocument.fileSignature(for: storageTestURL), "外部替换后文件签名必须发生变化")
+            expect(document.pendingExternalChangeAction() == .reload, "干净文档遇到外部文件变化应请求重新载入")
+            document.replaceText("unsaved local version", markingDirty: true)
+            try "another external version with a different length".write(to: storageTestURL, atomically: true, encoding: .utf8)
+            expect(document.pendingExternalChangeAction() == .conflict, "有本地更改时外部文件变化必须进入冲突状态")
         } catch {
             expect(false, "安全保存测试失败：\(error.localizedDescription)")
         }
