@@ -2438,6 +2438,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private let accountOutlineView = NSOutlineView()
     private weak var accountOutlineScrollView: NSScrollView?
     private var accountOutlineRoots: [AccountOutlineNode] = []
+    private let reconciliationTable = DashboardRecentTableView()
+    private weak var reconciliationScrollView: NSScrollView?
+    private var displayedReconciliationRows: [ReconciliationRow] = []
     private var journalQuery = ""
     private var journalSearchFieldScope: JournalSearchField = .all
     private var journalStatus: JournalStatusFilter = .all
@@ -3194,6 +3197,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         accountOutlineView.setAccessibilityLabel(ui("账户层级与余额", "Account hierarchy and balances"))
         accountsScroll.documentView = accountOutlineView; accountsScroll.isHidden = true
         accountOutlineScrollView = accountsScroll; reportStack.addArrangedSubview(accountsScroll)
+        let reconciliationScroll = NSScrollView()
+        reconciliationScroll.hasVerticalScroller = true; reconciliationScroll.autohidesScrollers = true; reconciliationScroll.borderType = .noBorder
+        for (identifier, title, width) in [("reconcileDate", ui("日期", "Date"), CGFloat(128)), ("reconcileDetail", ui("摘要", "Description"), CGFloat(210)), ("reconcileAccounts", ui("交易后余额", "Balance after transaction"), CGFloat(390))] {
+            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier)); column.title = title; column.width = width; reconciliationTable.addTableColumn(column)
+        }
+        reconciliationTable.headerView = NSTableHeaderView(); reconciliationTable.rowHeight = 36; reconciliationTable.usesAlternatingRowBackgroundColors = true
+        reconciliationTable.dataSource = self; reconciliationTable.delegate = self; reconciliationTable.target = self
+        reconciliationTable.doubleAction = #selector(editSelectedReconciliationTransaction(_:))
+        reconciliationTable.onDeleteKey = { [weak self] in self?.deleteSelectedReconciliationTransaction(nil) }
+        reconciliationTable.setAccessibilityLabel(ui("逐笔对账列表", "Transaction reconciliation list"))
+        reconciliationScroll.documentView = reconciliationTable; reconciliationScroll.isHidden = true
+        reconciliationScrollView = reconciliationScroll; reportStack.addArrangedSubview(reconciliationScroll)
         NSLayoutConstraint.activate([
             inspectorHeader.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             inspectorTitleLabel.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
@@ -3204,7 +3219,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             reportChartView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             reportScrollView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             journalScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
-            accountsScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
+            accountsScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
+            reconciliationScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
         ])
         contentHost.addSubview(dashboard)
         contentHost.addSubview(reportContainer)
@@ -5076,6 +5092,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         journalFilterContainer?.isHidden = sidePanelMode != .journal
         journalScrollView?.isHidden = sidePanelMode != .journal
         accountOutlineScrollView?.isHidden = sidePanelMode != .accounts
+        reconciliationScrollView?.isHidden = sidePanelMode != .reconciliation
         reportFilterContainer?.isHidden = sidePanelMode != .reports
         accountActionContainer?.isHidden = sidePanelMode != .accounts
         reconciliationOrderContainer?.isHidden = sidePanelMode != .reconciliation
@@ -5098,12 +5115,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             journalTable.reloadData()
             output = ""
         case .reconciliation:
-            let hasTrackedAccounts = report.accounts.contains { isLedgerAccount($0, .asset) || isLedgerAccount($0, .liability) }
-            var navigation = chronologicallyOrderedTransactions(report.journal).map(\.startLine)
-            if reconciliationNewestFirst { navigation.reverse() }
-            reportNavigationLines = hasTrackedAccounts ? navigation : []
+            displayedReconciliationRows = reconciliationRows(entries: report.journal, accounts: report.accounts, newestFirst: reconciliationNewestFirst)
+            reportNavigationLines = displayedReconciliationRows.map { $0.entry.startLine }
             reconciliationOrderControl.selectedSegment = reconciliationNewestFirst ? 0 : 1
-            output = reconciliationModeText(entries: report.journal, accounts: report.accounts, english: appLanguage == .english, newestFirst: reconciliationNewestFirst)
+            reconciliationTable.reloadData()
+            output = ""
         case .accounts:
             reportNavigationLines = []
             accountOutlineRoots = makeAccountOutline(for: report)
@@ -5123,7 +5139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
         reportView.setAccessibilityLabel(reportAccessibilityLabel)
         reportView.string = output
-        reportView.enclosingScrollView?.isHidden = sidePanelMode == .journal || sidePanelMode == .accounts
+        reportView.enclosingScrollView?.isHidden = sidePanelMode == .journal || sidePanelMode == .accounts || sidePanelMode == .reconciliation
         applyReportTypography()
         reportChartView.isHidden = sidePanelMode != .reports
         reportChartView.monthly = monthlyPersonalSummaries(entries: currentReportEntries(in: report))
@@ -5179,6 +5195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     func numberOfRows(in tableView: NSTableView) -> Int {
         if tableView === dashboardRecentTable { return max(1, dashboardRecentTransactions.count) }
         if tableView === journalTable { return displayedJournalTransactions.count }
+        if tableView === reconciliationTable { return displayedReconciliationRows.count }
         return 0
     }
 
@@ -5203,6 +5220,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             label.frame = NSRect(x: 5, y: 7, width: max(30, (tableColumn?.width ?? 100) - 10), height: 19); label.autoresizingMask = [.width]
             cell.addSubview(label)
             return cell
+        }
+        if tableView === reconciliationTable {
+            guard displayedReconciliationRows.indices.contains(row), let identifier = tableColumn?.identifier else { return nil }
+            let item = displayedReconciliationRows[row]
+            let value: String = switch identifier.rawValue {
+            case "reconcileDate": ledgerTransactionDateTime(item.entry)
+            case "reconcileDetail": ledgerTransactionDetail(item.entry)
+            case "reconcileAccounts": item.accountSummary
+            default: ""
+            }
+            let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
+            cell.identifier = identifier; cell.subviews.forEach { $0.removeFromSuperview() }
+            let label = NSTextField(labelWithString: value); label.lineBreakMode = .byTruncatingTail; label.textColor = CountPaperTheme.ink
+            label.font = identifier.rawValue == "reconcileAccounts" ? .monospacedDigitSystemFont(ofSize: 11.5, weight: .medium) : .systemFont(ofSize: 12)
+            label.frame = NSRect(x: 5, y: 8, width: max(30, (tableColumn?.width ?? 100) - 10), height: 18); label.autoresizingMask = [.width]
+            cell.addSubview(label); return cell
         }
         guard tableView === dashboardRecentTable else { return nil }
         let identifier = NSUserInterfaceItemIdentifier("recentTransaction")
@@ -5264,6 +5297,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     @objc private func deleteSelectedJournalTransaction(_ sender: Any?) {
         guard displayedJournalTransactions.indices.contains(journalTable.selectedRow) else { return }
         _ = deleteDashboardTransaction(displayedJournalTransactions[journalTable.selectedRow])
+    }
+
+    @objc private func editSelectedReconciliationTransaction(_ sender: Any?) {
+        guard displayedReconciliationRows.indices.contains(reconciliationTable.selectedRow) else { return }
+        beginEditingDashboardTransaction(displayedReconciliationRows[reconciliationTable.selectedRow].entry)
+    }
+
+    @objc private func deleteSelectedReconciliationTransaction(_ sender: Any?) {
+        guard displayedReconciliationRows.indices.contains(reconciliationTable.selectedRow) else { return }
+        _ = deleteDashboardTransaction(displayedReconciliationRows[reconciliationTable.selectedRow].entry)
     }
 
     func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
