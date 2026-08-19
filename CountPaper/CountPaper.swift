@@ -580,11 +580,30 @@ func ledgerTransactionDisplayAmount(_ entry: LedgerTransaction) -> Decimal {
     return entry.postings.first(where: { $0.amount > .zero })?.amount ?? entry.postings.first?.amount ?? .zero
 }
 
+/// The UI presents one human-facing signed amount per transaction.  The
+/// underlying postings remain double-entry values in the text file; this is
+/// only a compact reading aid for lists and reports.
+func ledgerTransactionAmountText(_ entry: LedgerTransaction) -> String {
+    let info = ledgerTransactionUIInfo(entry)
+    let prefix: String = switch info.kind {
+    case .expense: "−"
+    case .income: "+"
+    case .transfer, .other: ""
+    }
+    return "\(prefix)\(LedgerParser.format(abs(info.amount)))"
+}
+
 func ledgerTransactionDetail(_ entry: LedgerTransaction) -> String {
     var parts = [entry.summary]
     if let payee = entry.payee, !payee.isEmpty { parts.append(payee) }
     if !entry.tags.isEmpty { parts.append(entry.tags.map { "#\($0)" }.joined(separator: " ")) }
     return parts.joined(separator: " · ")
+}
+
+func ledgerTransactionJournalDetail(_ entry: LedgerTransaction, english: Bool) -> String {
+    [ledgerTransactionDetail(entry), ledgerTransactionUIInfo(entry).context(english: english)]
+        .filter { !$0.isEmpty }
+        .joined(separator: "  ·  ")
 }
 
 func filteredLedgerTransactions(_ entries: [LedgerTransaction], query: String = "", startDate: String? = nil, endDate: String? = nil, minimumAmount: Decimal? = nil, maximumAmount: Decimal? = nil, tag: String? = nil) -> [LedgerTransaction] {
@@ -3112,15 +3131,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         reportView.isEditable = false; reportView.delegate = self; reportView.font = .systemFont(ofSize: 14, weight: .regular); reportScrollView.documentView = reportView; reportStack.addArrangedSubview(reportScrollView); reportContainer.addSubview(reportStack)
         let journalScroll = NSScrollView()
         journalScroll.hasVerticalScroller = true; journalScroll.autohidesScrollers = true; journalScroll.borderType = .noBorder
+        // Journal deliberately uses only three columns.  The previous five
+        // columns could exceed the available width, leaving the Amount column
+        // outside of the visible area.  Context and tags remain in the
+        // transaction description, while the amount stays permanently visible.
         let journalColumns: [(String, String, CGFloat)] = [
-            ("journalDate", ui("日期", "Date"), 128),
-            ("journalDetail", ui("摘要", "Description"), 248),
-            ("journalAccount", ui("分类 / 账户", "Category / Account"), 220),
-            ("journalTags", ui("标签", "Tags"), 118),
-            ("journalAmount", ui("金额", "Amount"), 96)
+            ("journalDate", ui("日期", "Date"), 118),
+            ("journalDetail", ui("交易", "Transaction"), 360),
+            ("journalAmount", ui("金额", "Amount"), 112)
         ]
         for (identifier, title, width) in journalColumns {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier)); column.title = title; column.width = width
+            if identifier == "journalDate" { column.minWidth = 104; column.maxWidth = 142 }
+            if identifier == "journalDetail" { column.minWidth = 190; column.resizingMask = .autoresizingMask }
+            if identifier == "journalAmount" { column.minWidth = 100; column.maxWidth = 124 }
             journalTable.addTableColumn(column)
         }
         journalTable.headerView = NSTableHeaderView(); journalTable.rowHeight = 34
@@ -5073,7 +5097,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
                 .sorted { $0.date == $1.date ? $0.startLine > $1.startLine : $0.date > $1.date }
             reportNavigationLines = displayedJournalTransactions.map(\.startLine)
             journalTable.reloadData()
-            journalTable.sizeLastColumnToFit()
             output = ""
         case .reconciliation:
             displayedReconciliationRows = reconciliationRows(entries: report.journal, accounts: report.accounts, newestFirst: reconciliationNewestFirst)
@@ -5166,10 +5189,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             let entry = displayedJournalTransactions[row]
             let value: String = switch identifier.rawValue {
             case "journalDate": ledgerTransactionDateTime(entry)
-            case "journalDetail": ledgerTransactionDetail(entry)
-            case "journalAccount": ledgerTransactionUIInfo(entry).context(english: appLanguage == .english)
-            case "journalTags": entry.tags.map { "#\($0)" }.joined(separator: " ")
-            case "journalAmount": LedgerParser.format(ledgerTransactionDisplayAmount(entry))
+            case "journalDetail": ledgerTransactionJournalDetail(entry, english: appLanguage == .english)
+            case "journalAmount": ledgerTransactionAmountText(entry)
             default: ""
             }
             let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
@@ -5234,7 +5255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         rule.translatesAutoresizingMaskIntoConstraints = false; rule.wantsLayer = true; rule.layer?.backgroundColor = CountPaperTheme.border.cgColor
         cell.addSubview(primary); cell.addSubview(secondary); cell.addSubview(amount); cell.addSubview(rule)
         NSLayoutConstraint.activate([
-            amount.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+            amount.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -154),
             amount.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             amount.widthAnchor.constraint(equalToConstant: 122),
             primary.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
