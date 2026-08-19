@@ -3175,6 +3175,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         ])
         contentHost.addSubview(dashboard)
         contentHost.addSubview(reportContainer)
+        // The recording home is the initial page. Set this before the first
+        // asynchronous parse so launch can never briefly expose the empty
+        // inspector (which otherwise reads as a blank application window).
+        dashboard.isHidden = false
+        reportContainer.isHidden = true
         body.addSubview(contentHost)
         NSLayoutConstraint.activate([
             contentHost.leadingAnchor.constraint(equalTo: body.leadingAnchor, constant: 18),
@@ -5033,6 +5038,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         // overview. Every analytical view takes the entire content area.
         dashboardContainer?.isHidden = !isHome
         inspectorContainer?.isHidden = isHome
+        if isHome, let dashboard = dashboardContainer, let inspector = inspectorContainer {
+            dashboard.superview?.addSubview(dashboard, positioned: .above, relativeTo: inspector)
+        }
         inspectorCompactWidthConstraint?.isActive = false
         let expandedSourceReport = expandedReportSource(currentReport: report)
         updatePeriodPicker(for: expandedSourceReport)
@@ -5065,6 +5073,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
                 .sorted { $0.date == $1.date ? $0.startLine > $1.startLine : $0.date > $1.date }
             reportNavigationLines = displayedJournalTransactions.map(\.startLine)
             journalTable.reloadData()
+            journalTable.sizeLastColumnToFit()
             output = ""
         case .reconciliation:
             displayedReconciliationRows = reconciliationRows(entries: report.journal, accounts: report.accounts, newestFirst: reconciliationNewestFirst)
@@ -5205,29 +5214,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
         let entry = dashboardRecentTransactions[row]
         let info = ledgerTransactionUIInfo(entry)
-        let cellWidth = tableColumn?.width ?? tableView.bounds.width
         let primary = NSTextField(labelWithString: ledgerTransactionDetail(entry))
         primary.font = .systemFont(ofSize: 13, weight: .medium)
         primary.textColor = CountPaperTheme.ink
         primary.lineBreakMode = .byTruncatingTail
-        primary.frame = NSRect(x: 2, y: 25, width: max(100, cellWidth - 146), height: 18)
-        primary.autoresizingMask = [.width]
+        primary.translatesAutoresizingMaskIntoConstraints = false
         let secondary = NSTextField(labelWithString: "\(ledgerTransactionDateTime(entry))  ·  \(info.context(english: appLanguage == .english))")
         secondary.font = .systemFont(ofSize: 11.5)
         secondary.textColor = CountPaperTheme.secondaryInk
         secondary.lineBreakMode = .byTruncatingTail
-        secondary.frame = NSRect(x: 2, y: 7, width: max(100, cellWidth - 146), height: 16)
-        secondary.autoresizingMask = [.width]
+        secondary.translatesAutoresizingMaskIntoConstraints = false
         let amountPrefix: String = switch info.kind { case .expense: "−"; case .income: "+"; case .transfer, .other: "" }
         let amount = NSTextField(labelWithString: "\(amountPrefix)\(LedgerParser.format(abs(info.amount)))")
         amount.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
         amount.textColor = info.kind == .income ? CountPaperTheme.blue : CountPaperTheme.ink
         amount.alignment = .right
-        amount.frame = NSRect(x: max(0, cellWidth - 128), y: 17, width: 122, height: 20)
-        amount.autoresizingMask = [.minXMargin]
-        let rule = NSView(frame: NSRect(x: 0, y: 0, width: cellWidth, height: 1))
-        rule.wantsLayer = true; rule.layer?.backgroundColor = CountPaperTheme.border.cgColor; rule.autoresizingMask = [.width]
+        amount.translatesAutoresizingMaskIntoConstraints = false
+        let rule = NSView()
+        rule.translatesAutoresizingMaskIntoConstraints = false; rule.wantsLayer = true; rule.layer?.backgroundColor = CountPaperTheme.border.cgColor
         cell.addSubview(primary); cell.addSubview(secondary); cell.addSubview(amount); cell.addSubview(rule)
+        NSLayoutConstraint.activate([
+            amount.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -6),
+            amount.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+            amount.widthAnchor.constraint(equalToConstant: 122),
+            primary.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+            primary.trailingAnchor.constraint(lessThanOrEqualTo: amount.leadingAnchor, constant: -10),
+            primary.topAnchor.constraint(equalTo: cell.topAnchor, constant: 5),
+            secondary.leadingAnchor.constraint(equalTo: primary.leadingAnchor),
+            secondary.trailingAnchor.constraint(lessThanOrEqualTo: amount.leadingAnchor, constant: -10),
+            secondary.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -5),
+            rule.leadingAnchor.constraint(equalTo: cell.leadingAnchor), rule.trailingAnchor.constraint(equalTo: cell.trailingAnchor), rule.bottomAnchor.constraint(equalTo: cell.bottomAnchor), rule.heightAnchor.constraint(equalToConstant: 1)
+        ])
         return cell
     }
 
