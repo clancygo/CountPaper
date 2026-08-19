@@ -1205,23 +1205,11 @@ func canonicalTransactionReplacement(source: String, date: String, summary: Stri
 /// convenient edit from silently discarding hand-written text.
 func canonicalOutlineTransactionBlock(source: String, summary: String, flag: Character?, time: String? = nil, payee: String?, tags: [String], links: [String] = [], destination: String, sourceAccount: String, amount: Decimal) -> String? {
     guard amount != .zero else { return nil }
+    guard LedgerOutlineSafety.isFormEditableTransaction(source) else { return nil }
     let lineEnding = source.contains("\r\n") ? "\r\n" : "\n"
     let normalized = source.replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .newlines)
     let lines = normalized.components(separatedBy: "\n")
     guard lines.count >= 3, lines[0].hasPrefix("- ") else { return nil }
-    var postingCount = 0
-    for line in lines.dropFirst() {
-        guard line.hasPrefix("  - ") else { return nil }
-        let body = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
-        if body.hasPrefix("时间:") || body.hasPrefix("时间：") || body.hasPrefix("time:") ||
-            body.hasPrefix("收款方:") || body.hasPrefix("收款方：") ||
-            body.hasPrefix("标签:") || body.hasPrefix("标签：") ||
-            body.hasPrefix("链接:") || body.hasPrefix("链接：") { continue }
-        let parts = body.split(whereSeparator: { $0 == " " || $0 == "\t" })
-        guard parts.count == 2, Decimal(string: String(parts[1]), locale: Locale(identifier: "en_US_POSIX")) != nil else { return nil }
-        postingCount += 1
-    }
-    guard postingCount == 2 else { return nil }
     let marker = flag.map { " \($0)" } ?? ""
     var output = "-\(marker) \(summary)"
     if let time, time.range(of: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", options: .regularExpression) != nil {
@@ -5091,6 +5079,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             let report = LedgerParser.parse(textSnapshot)
             DispatchQueue.main.async {
                 guard let self, generation == self.parseGeneration else { return }
+                // Keep the document model authoritative even while a user is
+                // typing. The views receive the same parsed snapshot below;
+                // tabs and persistence never need to recreate their own copy.
+                if self.ledgerSessions.indices.contains(self.activeLedgerIndex) {
+                    self.ledgerSessions[self.activeLedgerIndex].document.replaceText(textSnapshot, markingDirty: self.isDirty)
+                }
                 self.apply(report: report)
             }
         }
@@ -5177,7 +5171,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         reportChartView.expenseCategories = reportSummary.expenses
         reportChartView.tagExpenses = reportAnalytics.tagExpenses
         reportChartView.kind = selectedReportKind
-        statusLabel.stringValue = report.diagnostics.isEmpty ? "" : "\(report.diagnostics.count) 个格式问题"
+        let validation = ledgerSessions.indices.contains(activeLedgerIndex)
+            ? ledgerSessions[activeLedgerIndex].document.validation
+            : LedgerValidation.evaluate(diagnostics: report.diagnostics)
+        statusLabel.stringValue = switch validation.level {
+        case .valid: ""
+        case .warning: ui("\(report.diagnostics.count) 条格式提醒", "\(report.diagnostics.count) format warning(s)")
+        case .unsafeToModify: ui("部分内容只能在文本 App 中安全修改", "Some content can only be safely edited in a text app")
+        case .fatal: ui("\(report.diagnostics.count) 个格式问题；请用文本方式修复", "\(report.diagnostics.count) format issue(s); repair in text mode")
+        }
         updateDashboard(for: report)
         applySyntaxHighlighting()
         layoutDocumentViews()

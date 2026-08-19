@@ -55,4 +55,13 @@ final class LedgerDocumentStorageTests: XCTestCase {
         )
         XCTAssertNil(LedgerWriter.replacing(NSRange(location: 999, length: 1), in: source, with: "x"))
     }
+
+    func testValidationSeparatesFatalSyntaxFromUnsafeStructuredEditing() {
+        XCTAssertEqual(LedgerValidation.evaluate(diagnostics: []).level, .valid)
+        XCTAssertEqual(LedgerValidation.evaluate(diagnostics: ["warning: spacing"]).level, .warning)
+        XCTAssertEqual(LedgerValidation.evaluate(diagnostics: [], hasUnsupportedEditableContent: true).level, .unsafeToModify)
+        XCTAssertEqual(LedgerValidation.evaluate(diagnostics: ["错误：缺少文件头"]).level, .fatal)
+        XCTAssertTrue(LedgerOutlineSafety.isFormEditableTransaction("- Lunch\n  - Expenses:Dining  20\n  - Assets:Cash  -20\n"))
+        XCTAssertFalse(LedgerOutlineSafety.isFormEditableTransaction("- Lunch\n  - custom: preserve me\n  - Expenses:Dining  20\n  - Assets:Cash  -20\n"))
+    }
 }

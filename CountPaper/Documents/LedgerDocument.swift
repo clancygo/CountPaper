@@ -17,6 +17,10 @@ final class LedgerDocument {
     private(set) var signature: LedgerFileSignature?
     private(set) var hasExternalConflict: Bool
 
+    var validation: LedgerValidation {
+        LedgerValidation.evaluate(diagnostics: report.diagnostics)
+    }
+
     init(url: URL?, text: String, isDirty: Bool = false, signature: LedgerFileSignature? = nil, hasExternalConflict: Bool = false) {
         self.id = UUID()
         self.url = url
