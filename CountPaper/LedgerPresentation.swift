@@ -1,5 +1,19 @@
 import Cocoa
 
+/// Shared table behaviour for transaction lists. It keeps list-level deletion
+/// separate from NSTextView's text-editing semantics.
+final class DashboardRecentTableView: NSTableView {
+    var onDeleteKey: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers == "\u{7F}" || event.charactersIgnoringModifiers == "\u{8}" {
+            onDeleteKey?()
+            return
+        }
+        super.keyDown(with: event)
+    }
+}
+
 /// Display-only hierarchy derived from plain-text account declarations. It
 /// retains no private ledger state; balances and notes are rebuilt per parse.
 final class AccountOutlineNode {

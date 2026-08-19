@@ -1640,21 +1640,6 @@ final class JournalReportTextView: NSTextView {
     }
 }
 
-/// A real native list for the small, non-scrolling transaction preview on the
-/// recording home.  Keeping Delete at the table level means the interaction is
-/// a list interaction—not a disguised editable text selection.
-final class DashboardRecentTableView: NSTableView {
-    var onDeleteKey: (() -> Void)?
-
-    override func keyDown(with event: NSEvent) {
-        if event.charactersIgnoringModifiers == "\u{7F}" || event.charactersIgnoringModifiers == "\u{8}" {
-            onDeleteKey?()
-            return
-        }
-        super.keyDown(with: event)
-    }
-}
-
 final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
     private let english: Bool
     private let panel: NSPanel
