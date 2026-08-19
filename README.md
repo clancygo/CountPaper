@@ -75,6 +75,12 @@ CountPaper is written in native Swift and AppKit. To build and verify locally:
 zsh CountPaper/verify.sh
 ```
 
+This repository currently uses a small, reproducible build script rather than
+an Xcode project file. Install the full version of Xcode before building; the
+script selects it automatically, compiles the macOS app, runs the Core tests,
+and verifies the resulting app bundle. No Apple Developer certificate is
+needed for local development—the generated app is ad-hoc signed.
+
 To create a versioned DMG:
 
 ```sh

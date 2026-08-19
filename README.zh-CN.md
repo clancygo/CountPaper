@@ -75,6 +75,8 @@ CountPaper 使用原生 Swift 和 AppKit。构建并验证：
 zsh CountPaper/verify.sh
 ```
 
+当前仓库使用轻量、可复现的构建脚本，暂不提供 Xcode 工程文件。构建前请安装完整 Xcode；脚本会自动选择它、编译 macOS App、运行 Core 测试并校验生成的 App 包。本地开发不需要 Apple Developer 证书，生成的 App 使用临时签名。
+
 生成按版本命名的 DMG：
 
 ```sh
