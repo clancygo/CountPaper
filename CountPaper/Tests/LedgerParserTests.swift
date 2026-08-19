@@ -48,6 +48,8 @@ struct LedgerParserTests {
         expect(reconciliationLineIndex(at: reconciliationText.range(of: "午餐")!.lowerBound.utf16Offset(in: reconciliationText), in: reconciliationText) == 1, "紧凑单行对账仍应能按交易行定位原文")
         let reverseReconciliationText = reconciliationModeText(entries: report.journal, accounts: report.accounts, newestFirst: true)
         expect(reverseReconciliationText.hasPrefix("2026-08-02 12:35"), "对账应支持最新交易在前的倒序阅读")
+        let nativeReconciliation = reconciliationRows(entries: report.journal, accounts: report.accounts, newestFirst: true)
+        expect(nativeReconciliation.first?.entry.summary == "午餐" && nativeReconciliation.first?.accountSummary.contains("现金  967.50 (-32.50)") == true, "原生对账列表应复用同一笔后余额计算，并支持倒序展示")
         let revisedReport = LedgerParser.parse(sample.replacingOccurrences(of: "32.50", with: "42.50").replacingOccurrences(of: "-32.50", with: "-42.50"))
         expect(reconciliationModeText(entries: revisedReport.journal, accounts: revisedReport.accounts).contains("现金 957.50"), "修改历史交易后全部后续余额应同步重算")
         let english = sample
