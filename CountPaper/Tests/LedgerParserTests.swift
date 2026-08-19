@@ -156,6 +156,38 @@ struct LedgerParserTests {
         let editedOutline = canonicalOutlineTransactionBlock(source: editableOutline, summary: "午后咖啡", flag: nil, payee: "星巴克", tags: ["咖啡"], destination: "费用:餐饮", sourceAccount: "资产:现金", amount: Decimal(string: "-20")!)
         expect(editedOutline == "- 午后咖啡\n  - 收款方: 星巴克\n  - 标签: 咖啡\n  - 费用:餐饮  -20.00\n  - 资产:现金  20.00\n", "表单修改应生成合法的大纲交易并保留负金额语义")
         expect(canonicalOutlineTransactionBlock(source: "- 复杂交易\n  - 自定义说明\n  - 费用:餐饮  1.00\n  - 资产:现金  -1.00\n", summary: "复杂交易", flag: nil, payee: nil, tags: [], destination: "费用:餐饮", sourceAccount: "资产:现金", amount: 1) == nil, "表单修改不得吞掉未知手写条目")
+        let roundTripSource = """
+        ---
+        format: countpaper/0.2
+        currency: CNY
+        ---
+
+        @账户
+        - 资产:现金
+        - 费用:餐饮
+
+        ; 这条注释必须原样保留
+        # 2026-08-15
+        - 早餐
+          - 费用:餐饮  12.00
+          - 资产:现金  -12.00
+
+        ; 两笔交易之间的手写说明也不能丢失
+        - 午餐
+          - 收款方: 小店
+          - 标签: 日常
+          - 费用:餐饮  20.00
+          - 资产:现金  -20.00
+        """
+        let roundTripReport = LedgerParser.parse(roundTripSource)
+        let lunch = roundTripReport.journal.last!
+        let lunchRange = ledgerSourceRange(in: roundTripSource, fromLine: lunch.startLine, throughLine: lunch.endLine)!
+        let lunchSource = (roundTripSource as NSString).substring(with: lunchRange)
+        let lunchReplacement = canonicalOutlineTransactionBlock(source: lunchSource, summary: "午餐（修改）", flag: lunch.flag, time: lunch.time, payee: lunch.payee, tags: lunch.tags, links: lunch.links, destination: "费用:餐饮", sourceAccount: "资产:现金", amount: 25)!
+        let roundTripEdited = LedgerWriter.replacing(lunchRange, in: roundTripSource, with: lunchReplacement)!
+        let reparsedRoundTrip = LedgerParser.parse(roundTripEdited)
+        expect(reparsedRoundTrip.diagnostics.isEmpty && reparsedRoundTrip.transactions == 2 && reparsedRoundTrip.journal.last?.summary == "午餐（修改）", "表单修改后的文稿必须可重新解析")
+        expect(roundTripEdited.contains("; 这条注释必须原样保留") && roundTripEdited.contains("; 两笔交易之间的手写说明也不能丢失") && roundTripEdited.contains("早餐\n  - 费用:餐饮  12.00"), "round-trip 修改不得触碰目标交易之外的注释、空行和交易")
         expect(safeLedgerAutoCorrection("# 2026-08-11\n- ").text == "# 2026-08-11\n- ", "自动修正不得移除正在编辑的交易条目空格")
         expect(outlineNewlineInsertion(in: "# 2026-08-11", selection: NSRange(location: 12, length: 0)) == "\n- ", "日期标题回车应新建交易条目")
         expect(outlineNewlineInsertion(in: "- 午餐", selection: NSRange(location: 4, length: 0)) == "\n- ", "交易条目回车应新建同级交易")

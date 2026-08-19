@@ -74,6 +74,13 @@ enum LedgerDocumentStorage {
         return directory
     }
 
+    static func fileSignature(for url: URL) -> LedgerFileSignature? {
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
+              let date = attributes[.modificationDate] as? Date,
+              let size = attributes[.size] as? NSNumber else { return nil }
+        return LedgerFileSignature(modificationDate: date, size: size.intValue)
+    }
+
     /// Returns recoverable revisions for one ledger, newest first. The backup
     /// name is intentionally self-contained so users can also copy it from
     /// Application Support if an application-level recovery flow is ever

@@ -19,6 +19,12 @@ DEVELOPER_DIR="$developer_dir" xcrun swiftc -O -framework Cocoa \
   -o "$test_binary"
 "$test_binary"
 
+# CountPaperCore deliberately has no AppKit dependency. Exercise its package
+# target separately so future iOS reuse cannot regress behind a green macOS
+# application build.
+DEVELOPER_DIR="$developer_dir" CLANG_MODULE_CACHE_PATH="$script_dir/build/swiftpm-module-cache" \
+  swift test --disable-sandbox --scratch-path "$script_dir/build/swiftpm"
+
 "$script_dir/build-app.sh"
 codesign --verify --deep --strict --verbose=2 "$script_dir/build/CountPaper.app"
 echo "CountPaper verification passed."

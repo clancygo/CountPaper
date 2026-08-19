@@ -90,21 +90,6 @@ enum CountPaperPreference {
 
 enum AppLanguage: String { case chinese, english }
 
-enum LedgerAccountKind { case asset, liability, equity, income, expense }
-
-func ledgerAccountKind(_ account: String) -> LedgerAccountKind? {
-    switch account.split(separator: ":", maxSplits: 1).first.map(String.init) {
-    case "资产", "Assets": return .asset
-    case "负债", "Liabilities": return .liability
-    case "权益", "Equity": return .equity
-    case "收入", "Income": return .income
-    case "费用", "Expenses": return .expense
-    default: return nil
-    }
-}
-
-func isLedgerAccount(_ account: String, _ kind: LedgerAccountKind) -> Bool { ledgerAccountKind(account) == kind }
-
 func quickEntryAmounts(_ text: String, allowsMultiple: Bool) -> [Decimal]? {
     let values = text.split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "\n" || $0 == "，" || $0 == "," })
     guard !values.isEmpty, (allowsMultiple || values.count == 1) else { return nil }
@@ -5708,19 +5693,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             return
         }
         if newDate == transaction.date {
-            let updated = NSMutableString(string: raw)
-            updated.replaceCharacters(in: range, with: replacement)
-            let organized = consolidatedLedgerDateSections(updated as String).text
-            if organized == updated as String {
+            guard let updated = LedgerWriter.replacing(range, in: raw, with: replacement) else { return }
+            let organized = consolidatedLedgerDateSections(updated).text
+            if organized == updated {
                 textView.textStorage?.replaceCharacters(in: range, with: replacement)
             } else {
                 textView.textStorage?.replaceCharacters(in: NSRange(location: 0, length: (raw as NSString).length), with: organized)
             }
         } else {
-            let updated = NSMutableString(string: raw)
-            updated.replaceCharacters(in: range, with: "")
+            guard let updated = LedgerWriter.replacing(range, in: raw, with: "") else { return }
             let block = replacement.trimmingCharacters(in: .newlines)
-            let organizedBase = consolidatedLedgerDateSections(updated as String).text
+            let organizedBase = consolidatedLedgerDateSections(updated).text
             let insertion = ledgerTransactionInsertion(in: organizedBase, date: newDate, transactionBlocks: [block])
             let final = NSMutableString(string: organizedBase)
             final.insert(insertion.text, at: insertion.location)
