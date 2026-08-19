@@ -5430,21 +5430,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             presentError(ui("这笔交易包含复杂或无法识别的手写内容，请使用“编辑文本”保留原样修改。", "This transaction contains complex hand-written content. Use Edit Text to preserve it while editing."))
             return
         }
-        editingDashboardTransaction = transaction
-        inlineKindControl.selectedSegment = components.kind.rawValue
-        inlineEntryBinder?.changeKind(inlineKindControl)
-        inlineAmountField.stringValue = LedgerParser.format(components.destination.amount)
-        inlineSummaryField.stringValue = transaction.summary
-        inlineDestinationPicker.selectItem(withTitle: components.destination.account)
-        inlineSourcePicker.selectItem(withTitle: components.source.account)
+        // Editing existing data is a bounded task. Keep the home recorder in
+        // its stable “new transaction” state and use a native sheet instead.
+        let form = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 126))
+        let amount = NSTextField(frame: NSRect(x: 112, y: 94, width: 270, height: 24)); amount.stringValue = LedgerParser.format(components.destination.amount)
+        let summary = NSTextField(frame: NSRect(x: 112, y: 62, width: 270, height: 24)); summary.stringValue = transaction.summary
+        let date = NSDatePicker(frame: NSRect(x: 112, y: 30, width: 270, height: 24)); date.datePickerStyle = .textFieldAndStepper; date.datePickerElements = .yearMonthDay
         let formatter = DateFormatter(); formatter.locale = Locale(identifier: "en_US_POSIX"); formatter.calendar = Calendar(identifier: .gregorian); formatter.dateFormat = "yyyy-MM-dd"
-        inlineDatePicker.dateValue = formatter.date(from: transaction.date) ?? Date()
-        updateInlineDateButtonTitle()
-        inlineEntryTitleLabel.stringValue = ui("修改交易", "Edit Transaction")
-        setPrimaryButtonTitle(inlineSaveButton, ui("保存修改", "Save Changes"))
-        inlineCancelEditButton.isHidden = false
-        inlineSuggestionPicker.isEnabled = false
-        window.makeFirstResponder(inlineAmountField)
+        date.dateValue = formatter.date(from: transaction.date) ?? Date()
+        for (title, view, y) in [(ui("金额", "Amount"), amount as NSView, CGFloat(94)), (ui("摘要", "Description"), summary as NSView, CGFloat(62)), (ui("日期", "Date"), date as NSView, CGFloat(30))] {
+            let label = NSTextField(labelWithString: title); label.alignment = .right; label.textColor = CountPaperTheme.secondaryInk; label.frame = NSRect(x: 0, y: y, width: 100, height: 24)
+            form.addSubview(label); form.addSubview(view)
+        }
+        let alert = NSAlert(); alert.messageText = ui("修改交易", "Edit Transaction")
+        alert.informativeText = ui("分类与账户保持不变；如需调整复式分录，请编辑原始文本。", "The category and account stay unchanged. Edit source text for complex postings.")
+        alert.accessoryView = form; alert.addButton(withTitle: ui("保存", "Save")); alert.addButton(withTitle: ui("取消", "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard let editedAmount = quickEntryAmounts(amount.stringValue, allowsMultiple: false)?.first, editedAmount != .zero else {
+            presentError(ui("请输入一个非零金额。", "Enter one non-zero amount.")); return
+        }
+        editingDashboardTransaction = transaction
+        inlineKindControl.selectedSegment = components.kind.rawValue; inlineEntryBinder?.changeKind(inlineKindControl)
+        inlineAmountField.stringValue = LedgerParser.format(editedAmount); inlineSummaryField.stringValue = summary.stringValue
+        inlineDestinationPicker.selectItem(withTitle: components.destination.account); inlineSourcePicker.selectItem(withTitle: components.source.account)
+        inlineDatePicker.dateValue = date.dateValue
+        updateInlineTransaction()
     }
 
     @objc private func cancelInlineTransactionEdit(_ sender: Any?) {
