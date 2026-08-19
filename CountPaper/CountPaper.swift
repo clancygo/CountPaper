@@ -1654,6 +1654,22 @@ final class DashboardRecentTableView: NSTableView {
     }
 }
 
+/// Display-only hierarchy derived from the plain-text account declarations.
+/// It deliberately stores no ledger state: every balance and note continues to
+/// come from the active file on each parse.
+final class AccountOutlineNode {
+    let title: String
+    let path: String
+    var account: String?
+    var balance: Decimal = .zero
+    var note: String?
+    var children: [AccountOutlineNode] = []
+
+    init(title: String, path: String, account: String? = nil) {
+        self.title = title; self.path = path; self.account = account
+    }
+}
+
 final class TransactionBrowserController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
     private let english: Bool
     private let panel: NSPanel
@@ -2315,7 +2331,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate, NSOutlineViewDataSource, NSOutlineViewDelegate {
     private var window: NSWindow!
     private let textView = LedgerTextView()
     private var sourceWindow: NSPanel?
@@ -2393,6 +2409,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private let journalTable = DashboardRecentTableView()
     private weak var journalScrollView: NSScrollView?
     private var displayedJournalTransactions: [LedgerTransaction] = []
+    private let accountOutlineView = NSOutlineView()
+    private weak var accountOutlineScrollView: NSScrollView?
+    private var accountOutlineRoots: [AccountOutlineNode] = []
     private var journalQuery = ""
     private var journalSearchFieldScope: JournalSearchField = .all
     private var journalStatus: JournalStatusFilter = .all
@@ -3138,6 +3157,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         journalTable.menu = journalMenu
         journalScroll.documentView = journalTable; journalScroll.isHidden = true
         journalScrollView = journalScroll; reportStack.addArrangedSubview(journalScroll)
+        let accountsScroll = NSScrollView()
+        accountsScroll.hasVerticalScroller = true; accountsScroll.autohidesScrollers = true; accountsScroll.borderType = .noBorder
+        let accountColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("accountOutline"))
+        accountColumn.title = ui("账户", "Account")
+        accountOutlineView.addTableColumn(accountColumn); accountOutlineView.outlineTableColumn = accountColumn
+        accountOutlineView.headerView = NSTableHeaderView(); accountOutlineView.rowHeight = 40
+        accountOutlineView.dataSource = self; accountOutlineView.delegate = self
+        accountOutlineView.target = self; accountOutlineView.doubleAction = #selector(openSelectedAccountJournal(_:))
+        accountOutlineView.setAccessibilityLabel(ui("账户层级与余额", "Account hierarchy and balances"))
+        accountsScroll.documentView = accountOutlineView; accountsScroll.isHidden = true
+        accountOutlineScrollView = accountsScroll; reportStack.addArrangedSubview(accountsScroll)
         NSLayoutConstraint.activate([
             inspectorHeader.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             inspectorTitleLabel.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
@@ -3147,7 +3177,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             accountActions.widthAnchor.constraint(equalTo: reportContainer.widthAnchor, constant: -40),
             reportChartView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
             reportScrollView.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
-            journalScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
+            journalScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor),
+            accountsScroll.widthAnchor.constraint(equalTo: reportContainer.widthAnchor)
         ])
         contentHost.addSubview(dashboard)
         contentHost.addSubview(reportContainer)
@@ -5018,6 +5049,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         journalStatusFilter.isHidden = sidePanelMode != .journal
         journalFilterContainer?.isHidden = sidePanelMode != .journal
         journalScrollView?.isHidden = sidePanelMode != .journal
+        accountOutlineScrollView?.isHidden = sidePanelMode != .accounts
         reportFilterContainer?.isHidden = sidePanelMode != .reports
         accountActionContainer?.isHidden = sidePanelMode != .accounts
         reconciliationOrderContainer?.isHidden = sidePanelMode != .reconciliation
@@ -5048,7 +5080,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             output = reconciliationModeText(entries: report.journal, accounts: report.accounts, english: appLanguage == .english, newestFirst: reconciliationNewestFirst)
         case .accounts:
             reportNavigationLines = []
-            output = accountTreeText(for: report)
+            accountOutlineRoots = makeAccountOutline(for: report)
+            accountOutlineView.reloadData()
+            accountOutlineRoots.forEach { accountOutlineView.expandItem($0, expandChildren: true) }
+            output = ""
         case .reports:
             reportNavigationLines = []
             output = reportText(for: report)
@@ -5062,7 +5097,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
         reportView.setAccessibilityLabel(reportAccessibilityLabel)
         reportView.string = output
-        reportView.enclosingScrollView?.isHidden = sidePanelMode == .journal
+        reportView.enclosingScrollView?.isHidden = sidePanelMode == .journal || sidePanelMode == .accounts
         applyReportTypography()
         reportChartView.isHidden = sidePanelMode != .reports
         reportChartView.monthly = monthlyPersonalSummaries(entries: currentReportEntries(in: report))
@@ -5203,6 +5238,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     @objc private func deleteSelectedJournalTransaction(_ sender: Any?) {
         guard displayedJournalTransactions.indices.contains(journalTable.selectedRow) else { return }
         _ = deleteDashboardTransaction(displayedJournalTransactions[journalTable.selectedRow])
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
+        (item as? AccountOutlineNode)?.children.count ?? accountOutlineRoots.count
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, child index: Int, ofItem item: Any?) -> Any {
+        item == nil ? accountOutlineRoots[index] : (item as! AccountOutlineNode).children[index]
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, isItemExpandable item: Any) -> Bool {
+        (item as? AccountOutlineNode).map { !$0.children.isEmpty } ?? false
+    }
+
+    func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
+        guard let node = item as? AccountOutlineNode else { return nil }
+        let identifier = NSUserInterfaceItemIdentifier("accountOutlineCell")
+        let cell = (outlineView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
+        cell.identifier = identifier; cell.subviews.forEach { $0.removeFromSuperview() }
+        let title = NSTextField(labelWithString: node.title)
+        title.font = .systemFont(ofSize: 13, weight: node.children.isEmpty ? .regular : .semibold); title.textColor = CountPaperTheme.ink
+        title.frame = NSRect(x: 3, y: 20, width: max(120, outlineView.bounds.width - 170), height: 17); title.autoresizingMask = [.width]
+        let subtitle = NSTextField(labelWithString: node.note ?? (node.account == nil ? "" : node.path))
+        subtitle.font = .systemFont(ofSize: 10.5); subtitle.textColor = CountPaperTheme.secondaryInk; subtitle.lineBreakMode = .byTruncatingTail
+        subtitle.frame = NSRect(x: 3, y: 4, width: max(120, outlineView.bounds.width - 170), height: 14); subtitle.autoresizingMask = [.width]
+        let amount = NSTextField(labelWithString: LedgerParser.format(displayBalance(node.balance, account: node.path)))
+        amount.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium); amount.textColor = CountPaperTheme.ink; amount.alignment = .right
+        amount.frame = NSRect(x: max(0, outlineView.bounds.width - 138), y: 12, width: 132, height: 18); amount.autoresizingMask = [.minXMargin]
+        cell.addSubview(title); cell.addSubview(subtitle); cell.addSubview(amount)
+        return cell
+    }
+
+    @objc private func openSelectedAccountJournal(_ sender: Any?) {
+        guard let node = accountOutlineView.item(atRow: accountOutlineView.selectedRow) as? AccountOutlineNode,
+              let account = node.account ?? (latestReport.accounts.contains(node.path) ? node.path : nil) else { return }
+        sidePanelMode = .journal; updateSidebarSelection()
+        journalQuery = account; journalSearchField.stringValue = account; journalSearchFieldScope = .account
+        journalSearchScope.selectItem(withTitle: JournalSearchField.account.title); apply(report: latestReport)
+    }
+
+    private func makeAccountOutline(for report: LedgerReport) -> [AccountOutlineNode] {
+        let visible = report.accounts.filter { !isInternalBalanceAdjustmentAccount($0) }
+        let notes = Dictionary(uniqueKeysWithValues: report.accountNotes.map { ($0.account, $0.text) })
+        let rootOrder = appLanguage == .english ? ["Assets", "Liabilities", "Equity", "Income", "Expenses"] : ["资产", "负债", "权益", "收入", "费用"]
+        var roots: [AccountOutlineNode] = []
+        for rootName in rootOrder {
+            let accounts = visible.filter { $0 == rootName || $0.hasPrefix(rootName + ":") }
+            guard !accounts.isEmpty else { continue }
+            let root = AccountOutlineNode(title: rootName, path: rootName)
+            for account in accounts {
+                let parts = account.split(separator: ":").map(String.init)
+                var parent = root; var path = rootName
+                for part in parts.dropFirst() {
+                    path += ":" + part
+                    if let existing = parent.children.first(where: { $0.path == path }) { parent = existing }
+                    else { let child = AccountOutlineNode(title: part, path: path); parent.children.append(child); parent = child }
+                }
+                parent.account = account; parent.note = notes[account]
+            }
+            func total(_ node: AccountOutlineNode) -> Decimal {
+                let own = node.account.flatMap { report.balances[$0] } ?? .zero
+                node.balance = own + node.children.reduce(.zero) { $0 + total($1) }
+                return node.balance
+            }
+            _ = total(root)
+            roots.append(root)
+        }
+        return roots
     }
 
     @objc private func showTransactionBrowser(_ sender: Any?) {
