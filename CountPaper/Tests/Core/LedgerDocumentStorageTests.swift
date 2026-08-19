@@ -69,4 +69,31 @@ final class LedgerDocumentStorageTests: XCTestCase {
         XCTAssertEqual(safeLedgerAutoCorrection("# 2026-08-20\n- ").text, "# 2026-08-20\n- ")
         XCTAssertEqual(safeLedgerAutoCorrection("format:countpaper/0.2\ncurrency:CNY\n").text, "format: countpaper/0.2\ncurrency: CNY\n")
     }
+
+    func testCoreParserBuildsStrictOutlineReport() {
+        let source = """
+        ---
+        format: countpaper/0.2
+        currency: CNY
+        ---
+
+        @账户
+        - 资产:现金
+        - 费用:餐饮
+
+        # 2026-08-20
+        - 午餐
+          - 时间: 12:30
+          - 收款方: 小店
+          - 标签: 日常, #午餐
+          - 费用:餐饮  20.00
+          - 资产:现金  -20.00
+        """
+        let report = LedgerCoreParser.parse(source)
+        XCTAssertTrue(report.diagnostics.isEmpty)
+        XCTAssertEqual(report.transactions, 1)
+        XCTAssertEqual(report.journal.first?.time, "12:30")
+        XCTAssertEqual(report.journal.first?.tags, ["日常", "午餐"])
+        XCTAssertEqual(report.balances["资产:现金"], Decimal(-20))
+    }
 }

@@ -28,6 +28,8 @@ struct LedgerParserTests {
           - 资产:现金  -32.50
         """
         let report = LedgerParser.parse(sample)
+        let coreReport = LedgerCoreParser.parse(sample)
+        expect(coreReport == report, "Core Parser 与既有严格 0.2 Parser 必须产生完全相同的报告")
         expect(report.diagnostics.isEmpty, "有效的大纲账本不应报错")
         expect(report.transactions == 2 && report.balances["资产:现金"] == Decimal(string: "967.50"), "大纲分录应正确计算余额")
         expect(report.journal.last?.date == "2026-08-02" && report.journal.last?.summary == "午餐", "日期标题与交易条目应被正确关联")
@@ -60,6 +62,7 @@ struct LedgerParserTests {
             .replacingOccurrences(of: "费用:餐饮", with: "Expenses:Dining")
             .replacingOccurrences(of: "时间:", with: "time:")
         let englishReport = LedgerParser.parse(english)
+        expect(LedgerCoreParser.parse(english) == englishReport, "Core Parser 必须保留英文账户、时间与标签解析语义")
         expect(englishReport.diagnostics.isEmpty && englishReport.journal.last?.time == "12:35" && englishReport.personalSummary(month: "2026-08").expenseTotal == Decimal(string: "32.50"), "英文账户根级、时间元数据与 USD 模板应被正确解析和统计")
         let combinedReport = aggregateLedgerReports([report, englishReport])
         let combinedSummary = combinedReport.personalSummary(month: "2026-08")
@@ -75,6 +78,7 @@ struct LedgerParserTests {
         expect(LedgerParser.parse(missingDate).diagnostics.contains { $0.contains("账户声明无效") }, "账户区后的交易必须先有日期一级标题")
         let unbalanced = sample.replacingOccurrences(of: "资产:现金  -32.50", with: "资产:现金  -30.00")
         let unbalancedReport = LedgerParser.parse(unbalanced)
+        expect(LedgerCoreParser.parse(unbalanced) == unbalancedReport, "Core Parser 必须保留不平衡交易诊断与排除规则")
         expect(unbalancedReport.diagnostics.contains { $0.contains("不平衡") }, "不平衡交易必须报错")
         expect(unbalancedReport.balanceIssues.count == 1 && unbalancedReport.balanceIssues[0].date == "2026-08-02" && unbalancedReport.balanceIssues[0].summary == "午餐" && unbalancedReport.balanceIssues[0].difference == Decimal(string: "2.50"), "打开检查应返回不平衡交易的日期、摘要、位置和差额")
 

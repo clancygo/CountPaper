@@ -3569,7 +3569,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
 
     private func checkBalanceAfterOpening(text: String, fileName: String) {
         guard checksBalanceOnOpen else { return }
-        let issues = LedgerParser.parse(text).balanceIssues
+        let issues = LedgerCoreParser.parse(text).balanceIssues
         guard !issues.isEmpty else { return }
         let shown = issues.prefix(8).map { issue -> String in
             let date = issue.date.isEmpty ? ui("日期未知", "Unknown date") : issue.date
@@ -4817,7 +4817,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         let textSnapshot = textView.string
         if !immediately { statusLabel.stringValue = "正在校验…" }
         let workItem = DispatchWorkItem { [weak self] in
-            let report = LedgerParser.parse(textSnapshot)
+            let report = LedgerCoreParser.parse(textSnapshot)
             DispatchQueue.main.async {
                 guard let self, generation == self.parseGeneration else { return }
                 // Keep the document model authoritative even while a user is
@@ -5464,7 +5464,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private func expandedReportSource(currentReport: LedgerReport) -> LedgerReport {
         guard reportsAllOpenLedgers else { return currentReport }
         let reports = ledgerSessions.enumerated().map { index, session in
-            index == activeLedgerIndex ? currentReport : LedgerParser.parse(session.text)
+            index == activeLedgerIndex ? currentReport : LedgerCoreParser.parse(session.text)
         }
         return aggregateLedgerReports(reports)
     }

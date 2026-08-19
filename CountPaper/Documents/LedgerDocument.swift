@@ -10,7 +10,7 @@ final class LedgerDocument {
     let id: UUID
     var url: URL?
     private(set) var text: String {
-        didSet { report = LedgerParser.parse(text) }
+        didSet { report = LedgerCoreParser.parse(text) }
     }
     private(set) var report: LedgerReport
     private(set) var isDirty: Bool
@@ -25,7 +25,7 @@ final class LedgerDocument {
         self.id = UUID()
         self.url = url
         self.text = text
-        self.report = LedgerParser.parse(text)
+        self.report = LedgerCoreParser.parse(text)
         self.isDirty = isDirty
         self.signature = signature
         self.hasExternalConflict = hasExternalConflict
