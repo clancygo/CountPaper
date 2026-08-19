@@ -2744,25 +2744,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         reportView.isEditable = false; reportView.delegate = self; reportView.font = .systemFont(ofSize: 14, weight: .regular); reportScrollView.documentView = reportView; reportStack.addArrangedSubview(reportScrollView); reportContainer.addSubview(reportStack)
         let journalScroll = NSScrollView()
         journalScroll.hasVerticalScroller = true; journalScroll.autohidesScrollers = true; journalScroll.borderType = .noBorder
-        // Journal deliberately uses only three columns.  The previous five
-        // columns could exceed the available width, leaving the Amount column
-        // outside of the visible area.  Context and tags remain in the
-        // transaction description, while the amount stays permanently visible.
-        let journalColumns: [(String, String, CGFloat)] = [
-            ("journalDate", ui("日期", "Date"), 118),
-            ("journalDetail", ui("交易", "Transaction"), 360),
-            ("journalAmount", ui("金额", "Amount"), 112)
-        ]
-        for (identifier, title, width) in journalColumns {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(identifier)); column.title = title; column.width = width
-            if identifier == "journalDate" { column.minWidth = 104; column.maxWidth = 142 }
-            if identifier == "journalDetail" { column.minWidth = 190; column.resizingMask = .autoresizingMask }
-            if identifier == "journalAmount" { column.minWidth = 100; column.maxWidth = 124 }
-            journalTable.addTableColumn(column)
-        }
-        journalTable.headerView = NSTableHeaderView(); journalTable.rowHeight = 34
+        // Keep a complete transaction together in one native table cell.
+        // Separate Date / Detail / Amount columns can be squeezed by an
+        // NSScrollView during a resize, which made the amount disappear even
+        // though the parsed transaction had one.  A single responsive column
+        // makes the amount a permanent part of every journal row.
+        let journalColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("journalTransaction"))
+        journalColumn.width = 640
+        journalColumn.minWidth = 280
+        journalColumn.resizingMask = .autoresizingMask
+        journalTable.addTableColumn(journalColumn)
+        journalTable.headerView = nil; journalTable.rowHeight = 48
         journalTable.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
-        journalTable.usesAlternatingRowBackgroundColors = true; journalTable.dataSource = self; journalTable.delegate = self
+        journalTable.intercellSpacing = .zero
+        journalTable.usesAlternatingRowBackgroundColors = false; journalTable.dataSource = self; journalTable.delegate = self
         journalTable.target = self; journalTable.doubleAction = #selector(editSelectedJournalTransaction(_:))
         journalTable.setAccessibilityLabel(ui("日记账交易列表", "Journal transaction list"))
         journalTable.onDeleteKey = { [weak self] in self?.deleteSelectedJournalTransaction(nil) }
@@ -4871,22 +4866,62 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         if tableView === journalTable {
-            guard displayedJournalTransactions.indices.contains(row), let identifier = tableColumn?.identifier else { return nil }
+            guard displayedJournalTransactions.indices.contains(row) else { return nil }
             let entry = displayedJournalTransactions[row]
-            let value: String = switch identifier.rawValue {
-            case "journalDate": ledgerTransactionDateTime(entry)
-            case "journalDetail": ledgerTransactionJournalDetail(entry, english: appLanguage == .english)
-            case "journalAmount": ledgerTransactionAmountText(entry)
-            default: ""
-            }
+            let identifier = NSUserInterfaceItemIdentifier("journalTransaction")
             let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
-            cell.identifier = identifier; cell.subviews.forEach { $0.removeFromSuperview() }
-            let label = NSTextField(labelWithString: value)
-            label.lineBreakMode = .byTruncatingTail; label.textColor = CountPaperTheme.ink
-            label.font = identifier.rawValue == "journalAmount" ? .monospacedDigitSystemFont(ofSize: 12, weight: .medium) : .systemFont(ofSize: 12)
-            label.alignment = identifier.rawValue == "journalAmount" ? .right : .left
-            label.frame = NSRect(x: 5, y: 7, width: max(30, (tableColumn?.width ?? 100) - 10), height: 19); label.autoresizingMask = [.width]
-            cell.addSubview(label)
+            cell.identifier = identifier
+            cell.subviews.forEach { $0.removeFromSuperview() }
+
+            let date = NSTextField(labelWithString: ledgerTransactionDateTime(entry))
+            date.font = .monospacedDigitSystemFont(ofSize: 11.5, weight: .medium)
+            date.textColor = CountPaperTheme.secondaryInk
+            date.lineBreakMode = .byTruncatingTail
+            date.translatesAutoresizingMaskIntoConstraints = false
+
+            let detail = NSTextField(labelWithString: ledgerTransactionDetail(entry))
+            detail.font = .systemFont(ofSize: 13, weight: .medium)
+            detail.textColor = CountPaperTheme.ink
+            detail.lineBreakMode = .byTruncatingTail
+            detail.translatesAutoresizingMaskIntoConstraints = false
+
+            let context = NSTextField(labelWithString: ledgerTransactionUIInfo(entry).context(english: appLanguage == .english))
+            context.font = .systemFont(ofSize: 11)
+            context.textColor = CountPaperTheme.secondaryInk
+            context.lineBreakMode = .byTruncatingTail
+            context.translatesAutoresizingMaskIntoConstraints = false
+
+            // This label intentionally shares the same cell as the transaction,
+            // rather than being a trailing NSTableColumn that AppKit may clip.
+            let amount = NSTextField(labelWithString: ledgerTransactionAmountText(entry))
+            amount.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+            amount.textColor = ledgerTransactionUIInfo(entry).kind == .income ? CountPaperTheme.blue : CountPaperTheme.ink
+            amount.alignment = .right
+            amount.translatesAutoresizingMaskIntoConstraints = false
+
+            let rule = NSView()
+            rule.translatesAutoresizingMaskIntoConstraints = false
+            rule.wantsLayer = true
+            rule.layer?.backgroundColor = CountPaperTheme.border.cgColor
+            cell.addSubview(date); cell.addSubview(detail); cell.addSubview(context); cell.addSubview(amount); cell.addSubview(rule)
+            NSLayoutConstraint.activate([
+                date.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 10),
+                date.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                date.widthAnchor.constraint(equalToConstant: 106),
+                detail.leadingAnchor.constraint(equalTo: date.trailingAnchor, constant: 12),
+                detail.trailingAnchor.constraint(lessThanOrEqualTo: amount.leadingAnchor, constant: -16),
+                detail.topAnchor.constraint(equalTo: cell.topAnchor, constant: 5),
+                context.leadingAnchor.constraint(equalTo: detail.leadingAnchor),
+                context.trailingAnchor.constraint(lessThanOrEqualTo: amount.leadingAnchor, constant: -16),
+                context.bottomAnchor.constraint(equalTo: cell.bottomAnchor, constant: -5),
+                amount.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -18),
+                amount.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                amount.widthAnchor.constraint(equalToConstant: 106),
+                rule.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+                rule.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
+                rule.bottomAnchor.constraint(equalTo: cell.bottomAnchor),
+                rule.heightAnchor.constraint(equalToConstant: 1)
+            ])
             return cell
         }
         if tableView === reconciliationTable {
@@ -4941,7 +4976,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         rule.translatesAutoresizingMaskIntoConstraints = false; rule.wantsLayer = true; rule.layer?.backgroundColor = CountPaperTheme.border.cgColor
         cell.addSubview(primary); cell.addSubview(secondary); cell.addSubview(amount); cell.addSubview(rule)
         NSLayoutConstraint.activate([
-            amount.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -154),
+            // Recent transactions use a deliberately inboard amount position:
+            // it reads as part of the transaction instead of a detached value
+            // pinned to the far edge of a wide card.
+            amount.centerXAnchor.constraint(equalTo: cell.centerXAnchor, constant: 90),
             amount.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             amount.widthAnchor.constraint(equalToConstant: 122),
             primary.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
