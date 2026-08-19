@@ -1639,21 +1639,18 @@ final class JournalReportTextView: NSTextView {
     }
 }
 
-final class DashboardRecentTextView: NSTextView {
-    var onRowClick: ((Int) -> Void)?
+/// A real native list for the small, non-scrolling transaction preview on the
+/// recording home.  Keeping Delete at the table level means the interaction is
+/// a list interaction—not a disguised editable text selection.
+final class DashboardRecentTableView: NSTableView {
+    var onDeleteKey: (() -> Void)?
 
-    override func mouseDown(with event: NSEvent) {
-        super.mouseDown(with: event)
-        let point = convert(event.locationInWindow, from: nil)
-        let offset = min(characterIndexForInsertion(at: point), (string as NSString).length)
-        let prefix = (string as NSString).substring(to: offset)
-        onRowClick?(prefix.reduce(into: 0) { if $1 == "\n" { $0 += 1 } })
-    }
-
-    override func insertNewline(_ sender: Any?) {
-        let offset = min(selectedRange().location, (string as NSString).length)
-        let prefix = (string as NSString).substring(to: offset)
-        onRowClick?(prefix.reduce(into: 0) { if $1 == "\n" { $0 += 1 } })
+    override func keyDown(with event: NSEvent) {
+        if event.charactersIgnoringModifiers == "\u{7F}" || event.charactersIgnoringModifiers == "\u{8}" {
+            onDeleteKey?()
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 
@@ -2318,7 +2315,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NSTableViewDataSource, NSTableViewDelegate {
     private var window: NSWindow!
     private let textView = LedgerTextView()
     private var sourceWindow: NSPanel?
@@ -2326,7 +2323,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let dashboardIncomeLabel = NSTextField(labelWithString: "")
     private let dashboardExpenseLabel = NSTextField(labelWithString: "")
     private let dashboardNetLabel = NSTextField(labelWithString: "")
-    private let dashboardRecentView = DashboardRecentTextView()
+    private let dashboardRecentTable = DashboardRecentTableView()
     private let dashboardEditButton = NSButton(title: "", target: nil, action: nil)
     private let dashboardDeleteButton = NSButton(title: "", target: nil, action: nil)
     private let dashboardMoreButton = NSButton(title: "", target: nil, action: nil)
@@ -2652,8 +2649,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         container.layer?.masksToBounds = true
         let stack = NSStackView(frame: container.bounds)
         stack.orientation = .vertical
-        stack.alignment = .width; stack.spacing = 18
-        stack.edgeInsets = NSEdgeInsets(top: 36, left: 28, bottom: 32, right: 28)
+        stack.alignment = .width; stack.spacing = 16
+        stack.edgeInsets = NSEdgeInsets(top: 30, left: 28, bottom: 28, right: 28)
         stack.translatesAutoresizingMaskIntoConstraints = false
         // Attach the stack before activating constraints from its arranged
         // subviews to `container`; AppKit requires a common ancestor.
@@ -2665,12 +2662,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             stack.bottomAnchor.constraint(equalTo: container.bottomAnchor)
         ])
 
-        dashboardTitleLabel.font = .systemFont(ofSize: 24, weight: .semibold)
+        dashboardTitleLabel.font = .systemFont(ofSize: 25, weight: .semibold)
         dashboardTitleLabel.textColor = CountPaperTheme.ink
         dashboardTitleLabel.alignment = .left
         dashboardTitleLabel.widthAnchor.constraint(equalToConstant: 724).isActive = true
         stack.addArrangedSubview(dashboardTitleLabel)
-        let summaryCard = CountPaperSurfaceView(fill: CountPaperTheme.surface, stroke: CountPaperTheme.border, radius: 16, shadow: true)
+        // Monthly figures deliberately sit behind recording: they are useful
+        // context, not the first task a person opens the app to perform.
+        let summaryCard = CountPaperSurfaceView(fill: CountPaperTheme.softSurface, stroke: CountPaperTheme.border, radius: 12)
         summaryCard.widthAnchor.constraint(equalToConstant: 724).isActive = true
         summaryCard.heightAnchor.constraint(equalToConstant: 98).isActive = true
         let statRow = NSStackView(); statRow.orientation = .horizontal; statRow.alignment = .centerY; statRow.spacing = 0
@@ -2694,14 +2693,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
             statRow.centerXAnchor.constraint(equalTo: summaryCard.centerXAnchor),
             statRow.centerYAnchor.constraint(equalTo: summaryCard.centerYAnchor)
         ])
-        stack.addArrangedSubview(summaryCard)
-
-        let entryCard = CountPaperSurfaceView(fill: CountPaperTheme.raisedSurface, stroke: CountPaperTheme.border, radius: 16, shadow: true)
+        let entryCard = CountPaperSurfaceView(fill: CountPaperTheme.surface, stroke: CountPaperTheme.border, radius: 12)
         entryCard.widthAnchor.constraint(equalToConstant: 724).isActive = true
         let entry = NSStackView(); entry.orientation = .vertical; entry.alignment = .leading; entry.spacing = 10
         entry.edgeInsets = NSEdgeInsets(top: 17, left: 20, bottom: 17, right: 20); entry.translatesAutoresizingMaskIntoConstraints = false
-        inlineEntryTitleLabel.stringValue = ui("记一笔", "New Entry")
-        inlineEntryTitleLabel.font = .systemFont(ofSize: 16, weight: .semibold); inlineEntryTitleLabel.textColor = CountPaperTheme.ink
+        inlineEntryTitleLabel.stringValue = ui("记一笔", "Record")
+        inlineEntryTitleLabel.font = .systemFont(ofSize: 18, weight: .semibold); inlineEntryTitleLabel.textColor = CountPaperTheme.ink
         let entryHeader = NSStackView(); entryHeader.orientation = .horizontal; entryHeader.alignment = .centerY
         entryHeader.widthAnchor.constraint(equalToConstant: 684).isActive = true
         entryHeader.addArrangedSubview(inlineEntryTitleLabel); entryHeader.addArrangedSubview(NSView())
@@ -2749,13 +2746,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         ])
         entryCard.heightAnchor.constraint(equalToConstant: 192).isActive = true
         stack.addArrangedSubview(entryCard)
+        stack.addArrangedSubview(summaryCard)
 
         let recentTitle = NSTextField(labelWithString: ui("最近交易", "Recent Transactions"))
         recentTitle.font = .systemFont(ofSize: 15, weight: .semibold); recentTitle.textColor = CountPaperTheme.ink
         let recentHeader = NSStackView(); recentHeader.orientation = .horizontal; recentHeader.alignment = .centerY
         recentHeader.widthAnchor.constraint(equalToConstant: 724).isActive = true
         recentHeader.addArrangedSubview(recentTitle)
-        dashboardMoreButton.title = ui("更多…", "More…"); dashboardMoreButton.target = self; dashboardMoreButton.action = #selector(showTransactionBrowser(_:)); styleDashboardActionButton(dashboardMoreButton, symbol: "list.bullet.rectangle", tint: CountPaperTheme.blue, filled: true); dashboardMoreButton.widthAnchor.constraint(equalToConstant: 78).isActive = true
+        dashboardMoreButton.title = ui("查看全部", "All Transactions"); dashboardMoreButton.target = self; dashboardMoreButton.action = #selector(showTransactionBrowser(_:)); styleDashboardActionButton(dashboardMoreButton, symbol: "arrow.right", tint: CountPaperTheme.blue); dashboardMoreButton.widthAnchor.constraint(equalToConstant: 112).isActive = true
         dashboardEditButton.title = ui("修改", "Edit"); dashboardEditButton.target = self; dashboardEditButton.action = #selector(editSelectedDashboardTransaction(_:)); styleDashboardActionButton(dashboardEditButton, symbol: "pencil", tint: CountPaperTheme.blue); dashboardEditButton.widthAnchor.constraint(equalToConstant: 62).isActive = true; dashboardEditButton.isEnabled = false
         dashboardDeleteButton.title = ui("删除", "Delete"); dashboardDeleteButton.target = self; dashboardDeleteButton.action = #selector(deleteSelectedDashboardTransaction(_:)); styleDashboardActionButton(dashboardDeleteButton, symbol: "trash", tint: CountPaperTheme.red); dashboardDeleteButton.widthAnchor.constraint(equalToConstant: 62).isActive = true; dashboardDeleteButton.isEnabled = false
         let openTextFile = NSButton(title: ui("编辑文本", "Edit Text"), target: self, action: #selector(openLedgerInTextEditor(_:)))
@@ -2769,19 +2767,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         recentHeader.addArrangedSubview(dashboardDeleteButton)
         recentHeader.addArrangedSubview(openTextFile)
         stack.addArrangedSubview(recentHeader)
-        let scroll = NSScrollView(); scroll.hasVerticalScroller = true; scroll.autohidesScrollers = true; scroll.borderType = .noBorder
-        scroll.wantsLayer = true; scroll.layer?.cornerRadius = 14; scroll.layer?.backgroundColor = CountPaperTheme.surface.cgColor; scroll.layer?.borderWidth = 0.6; scroll.layer?.borderColor = CountPaperTheme.border.cgColor
-        scroll.widthAnchor.constraint(equalToConstant: 724).isActive = true
-        dashboardRecentView.isEditable = false; dashboardRecentView.isSelectable = true
-        dashboardRecentView.textColor = CountPaperTheme.ink; dashboardRecentView.backgroundColor = .clear
-        dashboardRecentView.font = .systemFont(ofSize: 13, weight: .regular)
-        dashboardRecentView.textContainerInset = NSSize(width: 16, height: 12)
-        dashboardRecentView.selectedTextAttributes = [.backgroundColor: CountPaperTheme.blueSoft, .foregroundColor: CountPaperTheme.ink]
-        dashboardRecentView.setAccessibilityLabel(ui("最近交易", "Recent transactions"))
-        dashboardRecentView.onRowClick = { [weak self] row in self?.selectDashboardTransaction(at: row) }
-        scroll.documentView = dashboardRecentView
-        scroll.heightAnchor.constraint(equalToConstant: 156).isActive = true
-        stack.addArrangedSubview(scroll)
+        let recentList = NSScrollView()
+        recentList.hasVerticalScroller = false; recentList.hasHorizontalScroller = false; recentList.borderType = .noBorder
+        recentList.drawsBackground = false
+        recentList.widthAnchor.constraint(equalToConstant: 724).isActive = true
+        let recentColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("recentTransaction"))
+        recentColumn.width = 724
+        dashboardRecentTable.addTableColumn(recentColumn)
+        dashboardRecentTable.headerView = nil
+        dashboardRecentTable.rowHeight = 48
+        dashboardRecentTable.intercellSpacing = NSSize(width: 0, height: 0)
+        dashboardRecentTable.backgroundColor = .clear
+        dashboardRecentTable.selectionHighlightStyle = .regular
+        dashboardRecentTable.usesAlternatingRowBackgroundColors = false
+        dashboardRecentTable.allowsEmptySelection = true
+        dashboardRecentTable.dataSource = self
+        dashboardRecentTable.delegate = self
+        dashboardRecentTable.target = self
+        dashboardRecentTable.doubleAction = #selector(editSelectedDashboardTransaction(_:))
+        let recentMenu = NSMenu(title: ui("交易操作", "Transaction Actions"))
+        let recentEditItem = recentMenu.addItem(withTitle: ui("修改…", "Edit…"), action: #selector(editSelectedDashboardTransaction(_:)), keyEquivalent: "")
+        recentEditItem.target = self
+        let recentDeleteItem = recentMenu.addItem(withTitle: ui("删除", "Delete"), action: #selector(deleteSelectedDashboardTransaction(_:)), keyEquivalent: "")
+        recentDeleteItem.target = self
+        dashboardRecentTable.menu = recentMenu
+        dashboardRecentTable.setAccessibilityLabel(ui("最近交易", "Recent transactions"))
+        dashboardRecentTable.onDeleteKey = { [weak self] in self?.deleteSelectedDashboardTransaction(nil) }
+        recentList.documentView = dashboardRecentTable
+        recentList.heightAnchor.constraint(equalToConstant: 240).isActive = true
+        stack.addArrangedSubview(recentList)
         let bottomSpacer = NSView()
         bottomSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
         stack.addArrangedSubview(bottomSpacer)
@@ -2812,34 +2826,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         sidebarStack.orientation = .vertical
         sidebarStack.alignment = .leading
         sidebarStack.spacing = 5
-        sidebarStack.edgeInsets = NSEdgeInsets(top: 48, left: 16, bottom: 16, right: 16)
+        sidebarStack.edgeInsets = NSEdgeInsets(top: 42, left: 16, bottom: 16, right: 16)
         sidebarStack.translatesAutoresizingMaskIntoConstraints = false
-        let brand = NSTextField(labelWithString: "CountPaper")
-        brand.font = .systemFont(ofSize: 20, weight: .semibold)
-        brand.textColor = CountPaperTheme.ink
-        sidebarStack.addArrangedSubview(brand)
-        let subtitle = NSTextField(labelWithString: ui("纯文本个人账本", "Plain-text personal ledger"))
-        subtitle.font = .systemFont(ofSize: 11, weight: .medium)
-        subtitle.textColor = CountPaperTheme.secondaryInk
-        sidebarStack.addArrangedSubview(subtitle)
-        sidebarStack.setCustomSpacing(22, after: subtitle)
-        let navigationLabel = NSTextField(labelWithString: ui("浏览", "BROWSE"))
-        navigationLabel.font = .systemFont(ofSize: 10, weight: .semibold)
-        navigationLabel.textColor = CountPaperTheme.secondaryInk
-        sidebarStack.addArrangedSubview(navigationLabel)
-        sidebarStack.setCustomSpacing(7, after: navigationLabel)
+        let ledgerLabel = NSTextField(labelWithString: ui("账本", "LEDGER"))
+        ledgerLabel.font = .systemFont(ofSize: 10, weight: .semibold)
+        ledgerLabel.textColor = CountPaperTheme.secondaryInk
+        sidebarStack.addArrangedSubview(ledgerLabel)
+        sidebarStack.setCustomSpacing(7, after: ledgerLabel)
         sidebarButtons = [
             makeSidebarButton(title: ui("概览", "Overview"), symbol: "rectangle.grid.2x2", tag: 0),
             makeSidebarButton(title: ui("日记账", "Journal"), symbol: "list.bullet", tag: 1),
-            makeSidebarButton(title: ui("对账", "Reconcile"), symbol: "checkmark.rectangle", tag: 2),
-            makeSidebarButton(title: ui("账户", "Accounts"), symbol: "rectangle.3.group", tag: 3),
-            makeSidebarButton(title: ui("报表", "Reports"), symbol: "chart.bar", tag: 4)
+            makeSidebarButton(title: ui("对账", "Reconcile"), symbol: "checkmark.rectangle", tag: 2)
         ]
         sidebarButtons.forEach { button in
             sidebarStack.addArrangedSubview(button)
             button.widthAnchor.constraint(equalToConstant: 176).isActive = true
             button.heightAnchor.constraint(equalToConstant: 34).isActive = true
         }
+        let accountsLabel = NSTextField(labelWithString: ui("账户", "ACCOUNTS"))
+        accountsLabel.font = .systemFont(ofSize: 10, weight: .semibold); accountsLabel.textColor = CountPaperTheme.secondaryInk
+        sidebarStack.addArrangedSubview(accountsLabel); sidebarStack.setCustomSpacing(7, after: accountsLabel)
+        let accountsButton = makeSidebarButton(title: ui("账户", "Accounts"), symbol: "rectangle.3.group", tag: 3)
+        sidebarButtons.append(accountsButton); sidebarStack.addArrangedSubview(accountsButton)
+        accountsButton.widthAnchor.constraint(equalToConstant: 176).isActive = true; accountsButton.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        let analysisLabel = NSTextField(labelWithString: ui("分析", "ANALYSIS"))
+        analysisLabel.font = .systemFont(ofSize: 10, weight: .semibold); analysisLabel.textColor = CountPaperTheme.secondaryInk
+        sidebarStack.addArrangedSubview(analysisLabel); sidebarStack.setCustomSpacing(7, after: analysisLabel)
+        let reportsButton = makeSidebarButton(title: ui("报表", "Reports"), symbol: "chart.bar", tag: 4)
+        sidebarButtons.append(reportsButton); sidebarStack.addArrangedSubview(reportsButton)
+        reportsButton.widthAnchor.constraint(equalToConstant: 176).isActive = true; reportsButton.heightAnchor.constraint(equalToConstant: 34).isActive = true
         let sidebarSpacer = NSView()
         sidebarSpacer.setContentHuggingPriority(.defaultLow, for: .vertical)
         sidebarStack.addArrangedSubview(sidebarSpacer)
@@ -5033,10 +5048,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         configureInlineEntry(for: report)
         let latestMonth = report.journal.map { String($0.date.prefix(7)) }.max()
         let summary = report.personalSummary(month: latestMonth)
-        dashboardTitleLabel.stringValue = latestMonth.map { ui("\($0)", $0) } ?? ui("本月", "This Month")
-        dashboardIncomeLabel.attributedStringValue = dashboardMetric(title: ui("收入", "Income"), value: LedgerParser.format(summary.incomeTotal))
-        dashboardExpenseLabel.attributedStringValue = dashboardMetric(title: ui("支出", "Expenses"), value: LedgerParser.format(summary.expenseTotal))
-        dashboardNetLabel.attributedStringValue = dashboardMetric(title: ui("结余", "Net"), value: LedgerParser.format(summary.net))
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = appLanguage == .english ? Locale(identifier: "en_US") : Locale(identifier: "zh_Hans_CN")
+        dateFormatter.setLocalizedDateFormatFromTemplate(appLanguage == .english ? "EEEE, MMM d" : "M月d日 EEEE")
+        dashboardTitleLabel.stringValue = dateFormatter.string(from: Date())
+        dashboardIncomeLabel.attributedStringValue = dashboardMetric(title: ui("本月收入", "MONTHLY INCOME"), value: LedgerParser.format(summary.incomeTotal))
+        dashboardExpenseLabel.attributedStringValue = dashboardMetric(title: ui("本月支出", "MONTHLY EXPENSES"), value: LedgerParser.format(summary.expenseTotal))
+        dashboardNetLabel.attributedStringValue = dashboardMetric(title: ui("本月结余", "MONTHLY NET"), value: LedgerParser.format(summary.net))
         // The text file may be organised by project, month, or manual order.
         // "Recent" must therefore be ordered by its declared date—not by where
         // a transaction happens to occur in the source—while retaining source
@@ -5046,22 +5064,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
                 if $0.date != $1.date { return $0.date > $1.date }
                 return $0.startLine > $1.startLine
             }
-            .prefix(8))
+            .prefix(5))
         dashboardRecentTransactions = recent
         transactionBrowserController?.updateTransactions(report.journal)
         selectedDashboardTransaction = nil
         dashboardEditButton.isEnabled = false
         dashboardDeleteButton.isEnabled = false
-        dashboardRecentView.string = recent.isEmpty
-            ? ui("暂无交易", "No transactions")
-            : recent.map { entry in
-                let fullDetail = ledgerTransactionDetail(entry)
-                let detail = fullDetail.count > 19 ? String(fullDetail.prefix(18)) + "…" : fullDetail
-                let context = ledgerTransactionUIInfo(entry).context(english: appLanguage == .english)
-                let compactContext = context.count > 24 ? String(context.prefix(23)) + "…" : context
-                return "\(ledgerTransactionDateTime(entry))\t\(detail)\t\(compactContext)\t\(LedgerParser.format(ledgerTransactionDisplayAmount(entry)))"
-            }.joined(separator: "\n")
-        applyDashboardRecentTypography()
+        dashboardRecentTable.reloadData()
     }
 
     private func selectDashboardTransaction(at row: Int) {
@@ -5069,14 +5078,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         selectedDashboardTransaction = dashboardRecentTransactions[row]
         dashboardEditButton.isEnabled = true
         dashboardDeleteButton.isEnabled = true
-        let source = dashboardRecentView.string as NSString
-        var location = 0
-        for _ in 0..<row {
-            let range = source.lineRange(for: NSRange(location: location, length: 0))
-            location = NSMaxRange(range)
+    }
+
+    func numberOfRows(in tableView: NSTableView) -> Int {
+        tableView === dashboardRecentTable ? max(1, dashboardRecentTransactions.count) : 0
+    }
+
+    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard tableView === dashboardRecentTable else { return nil }
+        let identifier = NSUserInterfaceItemIdentifier("recentTransaction")
+        let cell = (tableView.makeView(withIdentifier: identifier, owner: self) as? NSTableCellView) ?? NSTableCellView()
+        cell.identifier = identifier
+        cell.subviews.forEach { $0.removeFromSuperview() }
+        if !dashboardRecentTransactions.indices.contains(row) {
+            let empty = NSTextField(labelWithString: ui("还没有交易。从上方开始记一笔。", "No transactions yet. Record one above to begin."))
+            empty.font = .systemFont(ofSize: 13)
+            empty.textColor = CountPaperTheme.secondaryInk
+            empty.frame = NSRect(x: 2, y: 14, width: max(80, tableView.bounds.width - 8), height: 20)
+            empty.autoresizingMask = [.width]
+            cell.addSubview(empty)
+            return cell
         }
-        let range = source.lineRange(for: NSRange(location: min(location, source.length), length: 0))
-        dashboardRecentView.setSelectedRange(range)
+        let entry = dashboardRecentTransactions[row]
+        let info = ledgerTransactionUIInfo(entry)
+        let primary = NSTextField(labelWithString: ledgerTransactionDetail(entry))
+        primary.font = .systemFont(ofSize: 13, weight: .medium)
+        primary.textColor = CountPaperTheme.ink
+        primary.lineBreakMode = .byTruncatingTail
+        primary.frame = NSRect(x: 2, y: 25, width: max(100, tableView.bounds.width - 146), height: 18)
+        primary.autoresizingMask = [.width]
+        let secondary = NSTextField(labelWithString: "\(ledgerTransactionDateTime(entry))  ·  \(info.context(english: appLanguage == .english))")
+        secondary.font = .systemFont(ofSize: 11.5)
+        secondary.textColor = CountPaperTheme.secondaryInk
+        secondary.lineBreakMode = .byTruncatingTail
+        secondary.frame = NSRect(x: 2, y: 7, width: max(100, tableView.bounds.width - 146), height: 16)
+        secondary.autoresizingMask = [.width]
+        let amountPrefix: String = switch info.kind { case .expense: "−"; case .income: "+"; case .transfer, .other: "" }
+        let amount = NSTextField(labelWithString: "\(amountPrefix)\(LedgerParser.format(abs(info.amount)))")
+        amount.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold)
+        amount.textColor = info.kind == .income ? CountPaperTheme.blue : CountPaperTheme.ink
+        amount.alignment = .right
+        amount.frame = NSRect(x: max(0, tableView.bounds.width - 128), y: 17, width: 122, height: 20)
+        amount.autoresizingMask = [.minXMargin]
+        let rule = NSView(frame: NSRect(x: 0, y: 0, width: tableView.bounds.width, height: 1))
+        rule.wantsLayer = true; rule.layer?.backgroundColor = CountPaperTheme.border.cgColor; rule.autoresizingMask = [.width]
+        cell.addSubview(primary); cell.addSubview(secondary); cell.addSubview(amount); cell.addSubview(rule)
+        return cell
+    }
+
+    func tableViewSelectionDidChange(_ notification: Notification) {
+        guard let tableView = notification.object as? NSTableView, tableView === dashboardRecentTable else { return }
+        if dashboardRecentTransactions.indices.contains(tableView.selectedRow) {
+            selectDashboardTransaction(at: tableView.selectedRow)
+        } else {
+            selectedDashboardTransaction = nil
+            dashboardEditButton.isEnabled = false
+            dashboardDeleteButton.isEnabled = false
+        }
     }
 
     @objc private func showTransactionBrowser(_ sender: Any?) {
@@ -5200,40 +5258,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
         return result
     }
 
-    private func applyDashboardRecentTypography() {
-        guard let storage = dashboardRecentView.textStorage else { return }
-        let fullRange = NSRange(location: 0, length: storage.length)
-        guard fullRange.length > 0 else { return }
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 2
-        paragraph.paragraphSpacing = 7
-        paragraph.tabStops = [
-            NSTextTab(textAlignment: .left, location: 132),
-            NSTextTab(textAlignment: .left, location: 330),
-            NSTextTab(textAlignment: .right, location: 590)
-        ]
-        storage.setAttributes([
-            .font: NSFont.systemFont(ofSize: 13, weight: .regular),
-            .foregroundColor: CountPaperTheme.ink,
-            .paragraphStyle: paragraph
-        ], range: fullRange)
-        let source = storage.string as NSString
-        var location = 0
-        while location < source.length {
-            let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
-            let line = source.substring(with: lineRange) as NSString
-            let firstTab = line.range(of: "\t")
-            if firstTab.location != NSNotFound {
-                storage.addAttributes([.foregroundColor: CountPaperTheme.secondaryInk, .font: NSFont.systemFont(ofSize: 12)], range: NSRange(location: lineRange.location, length: firstTab.location))
-                let lastTab = line.range(of: "\t", options: .backwards)
-                if lastTab.location != NSNotFound {
-                    let amountRange = NSRange(location: lineRange.location + NSMaxRange(lastTab), length: max(0, lineRange.length - NSMaxRange(lastTab)))
-                    storage.addAttribute(.font, value: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium), range: amountRange)
-                }
-            }
-            location = NSMaxRange(lineRange)
-        }
-    }
 
     private func configureInlineDatePicker() {
         // This picker only stores the selected value. The graphical calendar is
