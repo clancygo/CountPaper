@@ -229,6 +229,26 @@ struct LedgerParserTests {
             document.replaceText("unsaved local version", markingDirty: true)
             try "another external version with a different length".write(to: storageTestURL, atomically: true, encoding: .utf8)
             expect(document.pendingExternalChangeAction() == .conflict, "有本地更改时外部文件变化必须进入冲突状态")
+
+            let workflowURL = storageTestDirectory.appendingPathComponent("workflow.countpaper")
+            let workflowBackups = storageTestDirectory.appendingPathComponent("WorkflowBackups", isDirectory: true)
+            let workflowDocument = LedgerDocument(url: nil, text: sample)
+            _ = try workflowDocument.save(to: workflowURL, recoveryDirectory: workflowBackups)
+            guard let workflowTransaction = workflowDocument.report.journal.last,
+                  let workflowRange = ledgerSourceRange(in: workflowDocument.text, fromLine: workflowTransaction.startLine, throughLine: workflowTransaction.endLine) else {
+                expect(false, "工作流账本应包含可定位的交易")
+                return
+            }
+            let workflowOriginal = (workflowDocument.text as NSString).substring(with: workflowRange)
+            guard let workflowReplacement = canonicalOutlineTransactionBlock(source: workflowOriginal, summary: "工作流午餐", flag: workflowTransaction.flag, time: workflowTransaction.time, payee: workflowTransaction.payee, tags: workflowTransaction.tags, links: workflowTransaction.links, destination: "费用:餐饮", sourceAccount: "资产:现金", amount: 40),
+                  let workflowEdited = LedgerWriter.replacing(workflowRange, in: workflowDocument.text, with: workflowReplacement) else {
+                expect(false, "标准交易必须可以安全替换")
+                return
+            }
+            workflowDocument.replaceText(workflowEdited, markingDirty: true)
+            _ = try workflowDocument.save(recoveryDirectory: workflowBackups)
+            let reopened = LedgerDocument(url: workflowURL, text: try String(contentsOf: workflowURL, encoding: .utf8), signature: LedgerDocument.fileSignature(for: workflowURL))
+            expect(reopened.report.diagnostics.isEmpty && reopened.report.journal.last?.summary == "工作流午餐" && !reopened.isDirty, "创建、修改、保存、重新打开的文档工作流必须完整保留交易")
         } catch {
             expect(false, "安全保存测试失败：\(error.localizedDescription)")
         }
