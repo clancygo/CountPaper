@@ -182,3 +182,79 @@ struct LedgerReport: Equatable {
         }
     }
 }
+
+struct MonthlyPersonalSummary: Equatable {
+    let month: String
+    let summary: PersonalSummary
+}
+
+func monthlyPersonalSummaries(report: LedgerReport) -> [MonthlyPersonalSummary] {
+    monthlyPersonalSummaries(entries: report.journal)
+}
+
+func monthlyPersonalSummaries(entries: [LedgerTransaction]) -> [MonthlyPersonalSummary] {
+    let months = Set(entries.map { String($0.date.prefix(7)) }).sorted()
+    return months.map { month in
+        let monthEntries = entries.filter { $0.date.hasPrefix(month + "-") }
+        var income: [String: Decimal] = [:]
+        var expenses: [String: Decimal] = [:]
+        for entry in monthEntries {
+            for posting in entry.postings {
+                if isLedgerAccount(posting.account, .income) { income[posting.account, default: .zero] += -posting.amount }
+                if isLedgerAccount(posting.account, .expense) { expenses[posting.account, default: .zero] += posting.amount }
+            }
+        }
+        return MonthlyPersonalSummary(month: month, summary: PersonalSummary(transactions: monthEntries.count, income: income, expenses: expenses))
+    }
+}
+
+struct PersonalAnalytics: Equatable {
+    let expenseTransactions: Int
+    let averageExpense: Decimal
+    let largestExpenseAccount: String?
+    let largestExpense: Decimal
+    let paymentAccounts: [String: Decimal]
+    let tagExpenses: [String: Decimal]
+}
+
+func personalAnalytics(entries: [LedgerTransaction]) -> PersonalAnalytics {
+    var expenseTransactions = 0
+    var expenseTotal = Decimal.zero
+    var paymentAccounts: [String: Decimal] = [:]
+    var tagExpenses: [String: Decimal] = [:]
+    var expenseCategories: [String: Decimal] = [:]
+    for entry in entries {
+        let expense = entry.postings.filter { isLedgerAccount($0.account, .expense) && $0.amount > .zero }
+        let amount = expense.reduce(Decimal.zero) { $0 + $1.amount }
+        guard amount > .zero else { continue }
+        expenseTransactions += 1
+        expenseTotal += amount
+        for posting in expense { expenseCategories[posting.account, default: .zero] += posting.amount }
+        for posting in entry.postings where !isLedgerAccount(posting.account, .expense) && posting.amount < .zero {
+            paymentAccounts[posting.account, default: .zero] += -posting.amount
+        }
+        for tag in entry.tags { tagExpenses[tag, default: .zero] += amount }
+    }
+    let largest = expenseCategories.max { lhs, rhs in lhs.value < rhs.value }
+    return PersonalAnalytics(
+        expenseTransactions: expenseTransactions,
+        averageExpense: expenseTransactions == 0 ? .zero : expenseTotal / Decimal(expenseTransactions),
+        largestExpenseAccount: largest?.key,
+        largestExpense: largest?.value ?? .zero,
+        paymentAccounts: paymentAccounts,
+        tagExpenses: tagExpenses
+    )
+}
+
+func displayBalance(_ raw: Decimal, account: String) -> Decimal {
+    (isLedgerAccount(account, .liability) || isLedgerAccount(account, .equity) || isLedgerAccount(account, .income)) ? -raw : raw
+}
+
+func reconciliationDifference(report: LedgerReport, reconciliation: LedgerReconciliation) -> Decimal {
+    let raw = report.journal
+        .filter { $0.date <= reconciliation.date }
+        .flatMap(\.postings)
+        .filter { $0.account == reconciliation.account }
+        .reduce(Decimal.zero) { $0 + $1.amount }
+    return displayBalance(raw, account: reconciliation.account) - reconciliation.statementBalance
+}
