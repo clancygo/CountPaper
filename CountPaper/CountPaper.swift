@@ -86,6 +86,15 @@ enum CountPaperPreference {
     /// A user-chosen external editor for opening the plain-text ledger file.
     /// An empty value deliberately means "let macOS choose".
     static let sourceEditorApplicationPath = "preferences.sourceEditorApplicationPath"
+    static let workspaceSidePanelMode = "workspace.sidePanelMode"
+    static let workspaceReportKind = "workspace.reportKind"
+    static let workspaceReportsAllLedgers = "workspace.reportsAllLedgers"
+    static let workspaceReconciliationNewestFirst = "workspace.reconciliationNewestFirst"
+    static let workspaceReportMonth = "workspace.reportMonth"
+    static let workspaceReportStartDate = "workspace.reportStartDate"
+    static let workspaceReportEndDate = "workspace.reportEndDate"
+    static let workspaceReportTag = "workspace.reportTag"
+    static let workspaceReportAccount = "workspace.reportAccount"
 }
 
 enum AppLanguage: String { case chinese, english }
@@ -2078,7 +2087,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private var parseWorkItem: DispatchWorkItem?
     private var parseGeneration = 0
     private var latestReport = LedgerReport()
-    private enum SidePanelMode { case overview, journal, reconciliation, accounts, reports }
+    private enum SidePanelMode: String { case overview, journal, reconciliation, accounts, reports }
     private var sidePanelMode: SidePanelMode = .overview
     private var reportNavigationLines: [Int] = []
     private weak var sidePanelControl: NSSegmentedControl?
@@ -2139,6 +2148,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
 
     private func ui(_ chinese: String, _ english: String) -> String { appLanguage == .english ? english : chinese }
 
+    private func restoreWorkspaceState() {
+        let defaults = UserDefaults.standard
+        sidePanelMode = SidePanelMode(rawValue: defaults.string(forKey: CountPaperPreference.workspaceSidePanelMode) ?? "") ?? .overview
+        reportsAllOpenLedgers = defaults.bool(forKey: CountPaperPreference.workspaceReportsAllLedgers)
+        reconciliationNewestFirst = defaults.object(forKey: CountPaperPreference.workspaceReconciliationNewestFirst) == nil || defaults.bool(forKey: CountPaperPreference.workspaceReconciliationNewestFirst)
+        if let raw = defaults.string(forKey: CountPaperPreference.workspaceReportKind), let index = Int(raw), PersonalReportKind.allCases.indices.contains(index) {
+            selectedReportKind = PersonalReportKind.allCases[index]
+        }
+        selectedReportMonth = defaults.string(forKey: CountPaperPreference.workspaceReportMonth)
+        selectedReportStartDate = defaults.string(forKey: CountPaperPreference.workspaceReportStartDate)
+        selectedReportEndDate = defaults.string(forKey: CountPaperPreference.workspaceReportEndDate)
+        selectedReportTag = defaults.string(forKey: CountPaperPreference.workspaceReportTag)
+        selectedReportAccount = defaults.string(forKey: CountPaperPreference.workspaceReportAccount)
+    }
+
+    private func persistWorkspaceState() {
+        let defaults = UserDefaults.standard
+        defaults.set(sidePanelMode.rawValue, forKey: CountPaperPreference.workspaceSidePanelMode)
+        defaults.set(reportsAllOpenLedgers, forKey: CountPaperPreference.workspaceReportsAllLedgers)
+        defaults.set(reconciliationNewestFirst, forKey: CountPaperPreference.workspaceReconciliationNewestFirst)
+        defaults.set(String(PersonalReportKind.allCases.firstIndex(of: selectedReportKind) ?? 0), forKey: CountPaperPreference.workspaceReportKind)
+        defaults.set(selectedReportMonth, forKey: CountPaperPreference.workspaceReportMonth)
+        defaults.set(selectedReportStartDate, forKey: CountPaperPreference.workspaceReportStartDate)
+        defaults.set(selectedReportEndDate, forKey: CountPaperPreference.workspaceReportEndDate)
+        defaults.set(selectedReportTag, forKey: CountPaperPreference.workspaceReportTag)
+        defaults.set(selectedReportAccount, forKey: CountPaperPreference.workspaceReportAccount)
+    }
+
     @objc private func showAbout(_ sender: Any?) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
@@ -2171,6 +2208,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             UserDefaults.standard.set(true, forKey: CountPaperPreference.multipleAmounts)
             UserDefaults.standard.set(true, forKey: CountPaperPreference.multipleAmountsMigrated)
         }
+        restoreWorkspaceState()
         buildMenu()
         buildWindow()
         buildSourceWindow()
@@ -2209,7 +2247,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         return .terminateCancel
     }
 
-    func applicationWillTerminate(_ notification: Notification) { fileMonitorTimer?.invalidate() }
+    func applicationWillTerminate(_ notification: Notification) {
+        persistWorkspaceState()
+        fileMonitorTimer?.invalidate()
+    }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         enqueueDocumentOpenRequests(urls)
@@ -2537,7 +2578,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
         window.minSize = NSSize(width: 1060, height: 640)
-        window.center(); window.delegate = self
+        window.setFrameAutosaveName("CountPaperMainWindow")
+        if !window.setFrameUsingName("CountPaperMainWindow") { window.center() }
+        window.delegate = self
         (window as? CountPaperWindow)?.onCommandW = { [weak self] in self?.hideMainWindow(nil) }
 
         let root = CountPaperSurfaceView(fill: CountPaperTheme.canvas)
@@ -3090,12 +3133,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         let selection = NSRange(location: min(session.selection.location, textLength), length: min(session.selection.length, max(0, textLength - min(session.selection.location, textLength))))
         textView.setSelectedRange(selection)
         isSwitchingLedgerSession = false
-        selectedReportMonth = nil
-        selectedReportStartDate = nil
-        selectedReportEndDate = nil
-        selectedReportTag = nil
-        selectedReportAccount = nil
-        hasInitializedReportPeriod = false
         let name = session.url?.lastPathComponent ?? "\(ui("未命名", "Untitled")).countpaper"
         window.title = "\(name) — CountPaper"
         updateDocumentChrome()
@@ -4921,6 +4958,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         case .unsafeToModify: ui("部分内容只能在文本 App 中安全修改", "Some content can only be safely edited in a text app")
         case .fatal: ui("\(report.diagnostics.count) 个格式问题；请用文本方式修复", "\(report.diagnostics.count) format issue(s); repair in text mode")
         }
+        persistWorkspaceState()
         updateDashboard(for: report)
         applySyntaxHighlighting()
         layoutDocumentViews()
