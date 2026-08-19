@@ -2575,6 +2575,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         let hideWindow = fileMenu.addItem(withTitle: ui("隐藏窗口", "Hide Window"), action: #selector(hideMainWindow(_:)), keyEquivalent: "w")
         hideWindow.target = self
         fileMenu.addItem(withTitle: ui("从磁盘重新载入", "Reload from Disk"), action: #selector(reloadFromDisk(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: ui("还原上一版本…", "Revert to Previous Version…"), action: #selector(revertToPreviousVersion(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: ui("设为 .countpaper 默认打开应用", "Set as Default .countpaper App"), action: #selector(setAsDefaultEditor(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: ui("导出当前收支报表 CSV…", "Export Current Report CSV…"), action: #selector(exportReportCSV(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: ui("导出当前日记账 CSV…", "Export Current Journal CSV…"), action: #selector(exportJournalCSV(_:)), keyEquivalent: "")
@@ -3905,6 +3906,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
         reloadActiveDocumentFromDisk()
         statusLabel.stringValue = "已从磁盘重新载入"
+    }
+
+    @objc private func revertToPreviousVersion(_ sender: Any?) {
+        guard let url = documentURL else {
+            presentError(ui("请先保存账本，才能使用版本还原。", "Save the ledger before restoring a previous version."))
+            return
+        }
+        let backups: [URL]
+        do {
+            backups = try LedgerDocumentStorage.backups(for: url)
+        } catch {
+            presentError(ui("无法读取恢复备份：\(error.localizedDescription)", "Could not read recovery backups: \(error.localizedDescription)"))
+            return
+        }
+        guard !backups.isEmpty else {
+            presentError(ui("还没有可恢复的较早版本。CountPaper 会在保存已有账本前自动创建备份。", "No earlier version is available yet. CountPaper creates a backup before saving an existing ledger."))
+            return
+        }
+
+        let chooser = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 360, height: 28), pullsDown: false)
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .medium
+        formatter.locale = appLanguage == .english ? Locale(identifier: "en_US") : Locale(identifier: "zh_Hans_CN")
+        for backup in backups {
+            let date = (try? backup.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            chooser.addItem(withTitle: formatter.string(from: date))
+        }
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = ui("还原上一版本？", "Revert to a previous version?")
+        alert.informativeText = ui("当前文件会先自动备份，因此这次还原也可以再次撤销。", "The current file is backed up first, so this restore can be undone as well.")
+        alert.accessoryView = chooser
+        alert.addButton(withTitle: ui("还原", "Revert"))
+        alert.addButton(withTitle: ui("取消", "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let backup = backups[chooser.indexOfSelectedItem]
+        do {
+            let restoredText = try String(contentsOf: backup, encoding: .utf8)
+            textView.string = restoredText
+            isDirty = true
+            hasExternalConflict = false
+            persistActiveLedgerSession()
+            write(to: url)
+            statusLabel.stringValue = ui("已还原较早版本；还原前版本已备份", "Previous version restored; the pre-restore version was backed up")
+        } catch {
+            presentError(ui("无法还原备份：\(error.localizedDescription)", "Could not restore backup: \(error.localizedDescription)"))
+        }
     }
 
     @objc private func exportReportCSV(_ sender: Any?) {

@@ -177,6 +177,8 @@ struct LedgerParserTests {
             _ = try LedgerDocumentStorage.save("third", to: storageTestURL, backupLimit: 1, recoveryDirectory: storageBackups)
             let backupCount = try FileManager.default.contentsOfDirectory(at: storageBackups, includingPropertiesForKeys: nil).count
             expect(backupCount == 1, "恢复备份应遵守保留上限")
+            let listedBackups = try LedgerDocumentStorage.backups(for: storageTestURL, recoveryDirectory: storageBackups)
+            expect(listedBackups.count == 1, "恢复列表应只返回当前账本的备份版本")
 
             let document = LedgerDocument(url: storageTestURL, text: "third", signature: LedgerDocument.fileSignature(for: storageTestURL))
             expect(document.report.transactions == 0 && !document.isDirty, "文档模型应同时持有已解析的账本状态与干净状态")

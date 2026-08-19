@@ -74,6 +74,28 @@ enum LedgerDocumentStorage {
         return directory
     }
 
+    /// Returns recoverable revisions for one ledger, newest first. The backup
+    /// name is intentionally self-contained so users can also copy it from
+    /// Application Support if an application-level recovery flow is ever
+    /// unavailable.
+    static func backups(for documentURL: URL, recoveryDirectory: URL? = nil) throws -> [URL] {
+        let directory: URL
+        if let recoveryDirectory {
+            directory = recoveryDirectory
+        } else {
+            directory = try backupDirectory()
+        }
+        let suffix = "-\(documentURL.lastPathComponent)"
+        let keys: Set<URLResourceKey> = [.contentModificationDateKey]
+        return try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys), options: [.skipsHiddenFiles])
+            .filter { $0.lastPathComponent.hasSuffix(suffix) }
+            .sorted {
+                let left = (try? $0.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast
+                let right = (try? $1.resourceValues(forKeys: keys).contentModificationDate) ?? .distantPast
+                return left > right
+            }
+    }
+
     private static func backupCurrentVersion(of url: URL, limit: Int, recoveryDirectory: URL?) throws -> URL? {
         let manager = FileManager.default
         guard manager.fileExists(atPath: url.path) else { return nil }
