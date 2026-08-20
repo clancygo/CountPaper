@@ -2,36 +2,6 @@ import Cocoa
 import CoreServices
 import UniformTypeIdentifiers
 
-enum LedgerTransactionUIKind { case expense, income, transfer, other }
-
-struct LedgerTransactionUIInfo {
-    let kind: LedgerTransactionUIKind
-    let category: String?
-    let account: String?
-    let destinationAccount: String?
-    let amount: Decimal
-
-    func kindTitle(english: Bool) -> String {
-        switch kind {
-        case .expense: english ? "Expense" : "支出"
-        case .income: english ? "Income" : "收入"
-        case .transfer: english ? "Transfer" : "转账"
-        case .other: english ? "Transaction" : "交易"
-        }
-    }
-
-    func context(english: Bool) -> String {
-        switch kind {
-        case .expense, .income:
-            return [category, account].compactMap { $0 }.joined(separator: " · ")
-        case .transfer:
-            return [account, destinationAccount].compactMap { $0 }.joined(separator: " → ")
-        case .other:
-            return account ?? (english ? "Other" : "其他")
-        }
-    }
-}
-
 func ledgerAccountDisplayName(_ account: String) -> String {
     let components = account.split(separator: ":").map(String.init)
     return components.count > 1 ? components.dropFirst().joined(separator: " · ") : account
