@@ -2358,7 +2358,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         reportView.textColor = CountPaperTheme.ink
         reportView.backgroundColor = CountPaperTheme.surface
         reportView.isSelectable = true
-        reportView.selectedTextAttributes = [.backgroundColor: CountPaperTheme.blue, .foregroundColor: NSColor.white]
+        reportView.selectedTextAttributes = [.backgroundColor: NSColor.selectedTextBackgroundColor, .foregroundColor: NSColor.selectedTextColor]
         reportView.setAccessibilityLabel("账本概览")
         reportView.onReportClick = { [weak self] offset in self?.handleReportClick(at: offset) }
         reportView.isEditable = false; reportView.delegate = self; reportView.font = .systemFont(ofSize: 14, weight: .regular); reportScrollView.documentView = reportView; reportStack.addArrangedSubview(reportScrollView); reportContainer.addSubview(reportStack)
@@ -2509,7 +2509,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         button.wantsLayer = true
         button.layer?.backgroundColor = CountPaperTheme.blue.cgColor
         button.layer?.cornerRadius = 7
-        button.contentTintColor = .white
+        button.contentTintColor = .selectedTextColor
         button.font = .systemFont(ofSize: 13, weight: .semibold)
         setPrimaryButtonTitle(button, button.title)
     }
@@ -2531,7 +2531,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         button.title = title
         button.attributedTitle = NSAttributedString(string: title, attributes: [
             .font: button.font as Any,
-            .foregroundColor: NSColor.white
+            .foregroundColor: NSColor.selectedTextColor
         ])
     }
 
@@ -4132,7 +4132,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         guard selected.location <= storage.length else { highlightedReportLine = nil; return }
         let range = (reportView.string as NSString).lineRange(for: NSRange(location: selected.location, length: 0))
         guard range.length > 0 else { highlightedReportLine = nil; return }
-        storage.addAttribute(.backgroundColor, value: NSColor(calibratedRed: 0.33, green: 0.67, blue: 1.0, alpha: 0.30), range: range)
+        storage.addAttribute(.backgroundColor, value: NSColor.selectedContentBackgroundColor, range: range)
         highlightedReportLine = range
     }
 

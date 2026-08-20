@@ -18,8 +18,8 @@ final class DateRangeSelectionBinder: NSObject {
     }
     private func refreshLabels() {
         startLabel.stringValue = formatter.string(from: startDate); endLabel.stringValue = formatter.string(from: endDate)
-        startLabel.textColor = mode.selectedSegment == 0 ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
-        endLabel.textColor = mode.selectedSegment == 1 ? CountPaperTheme.blue : CountPaperTheme.secondaryInk
+        startLabel.textColor = mode.selectedSegment == 0 ? .controlAccentColor : .secondaryLabelColor
+        endLabel.textColor = mode.selectedSegment == 1 ? .controlAccentColor : .secondaryLabelColor
     }
 }
 

@@ -29,8 +29,9 @@ enum CountPaperTheme {
     static let accent = NSColor.controlAccentColor
     static let accentSoft = NSColor.selectedContentBackgroundColor
 
-    // Compatibility names keep call sites legible while they inherit the
-    // system accent and selection behaviour above.
+    // These compatibility names are semantic aliases, not palette entries:
+    // existing views therefore follow the user's chosen accent and selected
+    // control treatment without carrying calibrated RGB values around.
     static let blue = accent
     static let blueSoft = accentSoft
     static let red = NSColor.systemRed
