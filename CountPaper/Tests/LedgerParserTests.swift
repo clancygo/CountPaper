@@ -118,6 +118,11 @@ struct LedgerParserTests {
         expect(externalChangeAction(last: unchangedSignature, current: unchangedSignature, hasUnsavedChanges: false) == .none, "文件签名不变时不应触发外部变更")
         expect(externalChangeAction(last: unchangedSignature, current: changedSignature, hasUnsavedChanges: false) == .reload, "无本地修改时应重新载入外部变更")
         expect(externalChangeAction(last: unchangedSignature, current: changedSignature, hasUnsavedChanges: true) == .conflict, "有本地修改时外部变更必须进入冲突状态")
+        let metadataOnlySignature = LedgerFileSignature(modificationDate: Date(timeIntervalSince1970: 2), size: 10, contentHash: "same")
+        let hashKnownSignature = LedgerFileSignature(modificationDate: Date(timeIntervalSince1970: 1), size: 10, contentHash: "same")
+        let sameSizeChangedContent = LedgerFileSignature(modificationDate: Date(timeIntervalSince1970: 2), size: 10, contentHash: "different")
+        expect(externalChangeAction(last: hashKnownSignature, current: metadataOnlySignature, hasUnsavedChanges: false) == .none, "内容哈希相同的元数据变化不应重载账本")
+        expect(externalChangeAction(last: hashKnownSignature, current: sameSizeChangedContent, hasUnsavedChanges: false) == .reload, "同尺寸但内容哈希不同的外部修改必须重载账本")
         expect(externalChangeAction(last: unchangedSignature, current: nil, hasUnsavedChanges: false) == .deleted, "已打开文件从磁盘删除时必须报告删除状态")
         expect(externalChangeAction(last: unchangedSignature, current: nil, hasUnsavedChanges: true) == .deleted, "有未保存修改时文件删除也必须单独报告删除状态")
         let existingDateSource = "# 2026-08-11\n- 原交易\n  - 费用:餐饮  1.00\n  - 资产:现金  -1.00\n"

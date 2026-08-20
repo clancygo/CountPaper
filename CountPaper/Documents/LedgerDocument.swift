@@ -27,7 +27,7 @@ final class LedgerDocument {
         self.text = text
         self.report = LedgerCoreParser.parse(text)
         self.isDirty = isDirty
-        self.signature = signature
+        self.signature = Self.signature(for: url, knownText: text, metadata: signature)
         self.hasExternalConflict = hasExternalConflict
     }
 
@@ -49,7 +49,7 @@ final class LedgerDocument {
         guard let target else { throw CocoaError(.fileNoSuchFile) }
         let result = try LedgerDocumentStorage.save(text, to: target, backupLimit: backupLimit, recoveryDirectory: recoveryDirectory)
         url = target
-        signature = Self.fileSignature(for: target)
+        signature = Self.signature(for: target, knownText: text)
         isDirty = false
         hasExternalConflict = false
         return result
@@ -60,11 +60,32 @@ final class LedgerDocument {
         replaceText(try String(contentsOf: url, encoding: .utf8), markingDirty: false)
         isDirty = false
         hasExternalConflict = false
-        signature = Self.fileSignature(for: url)
+        signature = Self.signature(for: url, knownText: text)
     }
 
     func pendingExternalChangeAction() -> ExternalChangeAction {
-        externalChangeAction(last: signature, current: url.flatMap(Self.fileSignature), hasUnsavedChanges: isDirty)
+        guard let url else { return .none }
+        guard let metadata = Self.fileSignature(for: url) else {
+            return signature == nil ? .none : .deleted
+        }
+        guard let signature else { return .none }
+        guard !signature.hasSameMetadata(as: metadata) else { return .none }
+
+        // Metadata changed, so confirm the actual bytes once. This avoids a
+        // full-file read on every monitor tick while filtering harmless
+        // timestamp/provider metadata updates.
+        guard let currentHash = LedgerDocumentStorage.contentHash(at: url) else { return .deleted }
+        let current = LedgerFileSignature(
+            modificationDate: metadata.modificationDate,
+            size: metadata.size,
+            resourceIdentifier: metadata.resourceIdentifier,
+            contentHash: currentHash
+        )
+        let action = externalChangeAction(last: signature, current: current, hasUnsavedChanges: isDirty)
+        if action == .none {
+            self.signature = current
+        }
+        return action
     }
 
     func markExternalConflict() {
@@ -74,5 +95,19 @@ final class LedgerDocument {
 
     static func fileSignature(for url: URL) -> LedgerFileSignature? {
         LedgerDocumentStorage.fileSignature(for: url)
+    }
+
+    private static func signature(for url: URL?, knownText: String, metadata: LedgerFileSignature? = nil) -> LedgerFileSignature? {
+        guard let url else { return metadata }
+        let hash = LedgerDocumentStorage.contentHash(for: knownText)
+        if let metadata {
+            return LedgerFileSignature(
+                modificationDate: metadata.modificationDate,
+                size: metadata.size,
+                resourceIdentifier: metadata.resourceIdentifier,
+                contentHash: hash
+            )
+        }
+        return LedgerDocumentStorage.fileSignature(for: url, contentHash: hash)
     }
 }

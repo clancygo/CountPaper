@@ -1,8 +1,28 @@
+import CryptoKit
 import Foundation
 
 struct LedgerFileSignature: Equatable {
     let modificationDate: Date
     let size: Int
+    /// Stable while a file stays the same filesystem object. It supplements
+    /// date and size, which can be preserved by some sync providers.
+    let resourceIdentifier: String?
+    /// SHA-256 of the UTF-8 file data. This is intentionally optional: normal
+    /// polling only captures metadata and computes this value on suspicion.
+    let contentHash: String?
+
+    init(modificationDate: Date, size: Int, resourceIdentifier: String? = nil, contentHash: String? = nil) {
+        self.modificationDate = modificationDate
+        self.size = size
+        self.resourceIdentifier = resourceIdentifier
+        self.contentHash = contentHash
+    }
+
+    func hasSameMetadata(as other: LedgerFileSignature) -> Bool {
+        modificationDate == other.modificationDate
+            && size == other.size
+            && resourceIdentifier == other.resourceIdentifier
+    }
 }
 
 enum ExternalChangeAction: Equatable { case none, reload, conflict, deleted }
@@ -10,7 +30,12 @@ enum ExternalChangeAction: Equatable { case none, reload, conflict, deleted }
 func externalChangeAction(last: LedgerFileSignature?, current: LedgerFileSignature?, hasUnsavedChanges: Bool) -> ExternalChangeAction {
     guard let last else { return .none }
     guard let current else { return .deleted }
-    guard last != current else { return .none }
+    if last.hasSameMetadata(as: current) { return .none }
+    // A metadata-only update (for example Finder tags or a provider restoring
+    // timestamps) is not a ledger change when the confirmed bytes agree.
+    if let lastHash = last.contentHash, let currentHash = current.contentHash, lastHash == currentHash {
+        return .none
+    }
     return hasUnsavedChanges ? .conflict : .reload
 }
 
@@ -76,11 +101,35 @@ enum LedgerDocumentStorage {
         return directory
     }
 
-    static func fileSignature(for url: URL) -> LedgerFileSignature? {
+    /// Fast metadata probe for the periodic external-change monitor. It never
+    /// reads ledger contents or calculates a hash.
+    static func fileSignature(for url: URL, contentHash: String? = nil) -> LedgerFileSignature? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: url.path),
               let date = attributes[.modificationDate] as? Date,
               let size = attributes[.size] as? NSNumber else { return nil }
-        return LedgerFileSignature(modificationDate: date, size: size.intValue)
+        let resourceIdentifier = try? url.resourceValues(forKeys: [.fileResourceIdentifierKey]).fileResourceIdentifier
+        return LedgerFileSignature(
+            modificationDate: date,
+            size: size.intValue,
+            resourceIdentifier: resourceIdentifier.map { String(describing: $0) },
+            contentHash: contentHash
+        )
+    }
+
+    static func contentHash(for text: String) -> String {
+        contentHash(for: Data(text.utf8))
+    }
+
+    /// Called only after metadata looks different, or while opening/saving a
+    /// document whose text is already in memory. It must not be used by the
+    /// periodic probe itself.
+    static func contentHash(at url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return contentHash(for: data)
+    }
+
+    private static func contentHash(for data: Data) -> String {
+        SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     /// Returns recoverable revisions for one ledger, newest first. New
