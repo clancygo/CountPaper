@@ -1615,6 +1615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
     private var lastKnownFileSignature: LedgerFileSignature?
     private var hasExternalConflict = false
     private var fileMonitorTimer: Timer?
+    private var versionHistoryController: VersionHistoryPanelController?
     private let recentMenu = NSMenu(title: "最近使用")
     private let countPaperContentType = UTType(filenameExtension: "countpaper") ?? .plainText
     private var quickEntryFormBinder: QuickEntryFormBinder?
@@ -1808,7 +1809,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         let hideWindow = fileMenu.addItem(withTitle: ui("隐藏窗口", "Hide Window"), action: #selector(hideMainWindow(_:)), keyEquivalent: "w")
         hideWindow.target = self
         fileMenu.addItem(withTitle: ui("从磁盘重新载入", "Reload from Disk"), action: #selector(reloadFromDisk(_:)), keyEquivalent: "")
-        fileMenu.addItem(withTitle: ui("还原上一版本…", "Revert to Previous Version…"), action: #selector(revertToPreviousVersion(_:)), keyEquivalent: "")
+        fileMenu.addItem(withTitle: ui("恢复历史版本…", "Restore Historical Version…"), action: #selector(showVersionHistory(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: ui("设为 .countpaper 默认打开应用", "Set as Default .countpaper App"), action: #selector(setAsDefaultEditor(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: ui("导出当前收支报表 CSV…", "Export Current Report CSV…"), action: #selector(exportReportCSV(_:)), keyEquivalent: "")
         fileMenu.addItem(withTitle: ui("导出当前日记账 CSV…", "Export Current Journal CSV…"), action: #selector(exportJournalCSV(_:)), keyEquivalent: "")
@@ -3132,7 +3133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         statusLabel.stringValue = "已从磁盘重新载入"
     }
 
-    @objc private func revertToPreviousVersion(_ sender: Any?) {
+    @objc private func showVersionHistory(_ sender: Any?) {
         guard let url = documentURL else {
             presentError(ui("请先保存账本，才能使用版本还原。", "Save the ledger before restoring a previous version."))
             return
@@ -3149,31 +3150,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             return
         }
 
-        let chooser = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 360, height: 28), pullsDown: false)
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .medium
-        formatter.locale = appLanguage == .english ? Locale(identifier: "en_US") : Locale(identifier: "zh_Hans_CN")
-        for backup in backups {
-            let date = (try? backup.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            chooser.addItem(withTitle: formatter.string(from: date))
+        let versions = backups.map {
+            LedgerRecoveryVersion(
+                url: $0,
+                date: (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            )
         }
-        let alert = NSAlert()
-        alert.alertStyle = .warning
-        alert.messageText = ui("还原上一版本？", "Revert to a previous version?")
-        alert.informativeText = ui("当前文件会先自动备份，因此这次还原也可以再次撤销。", "The current file is backed up first, so this restore can be undone as well.")
-        alert.accessoryView = chooser
-        alert.addButton(withTitle: ui("还原", "Revert"))
-        alert.addButton(withTitle: ui("取消", "Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        let backup = backups[chooser.indexOfSelectedItem]
+        let controller = VersionHistoryPanelController(versions: versions, chinese: appLanguage == .chinese) { [weak self] version in
+            self?.restoreHistoricalVersion(version)
+        }
+        versionHistoryController = controller
+        controller.present(asSheetFor: window)
+    }
+
+    private func restoreHistoricalVersion(_ version: LedgerRecoveryVersion) {
+        guard let url = documentURL, ledgerSessions.indices.contains(activeLedgerIndex) else { return }
         do {
-            let restoredText = try String(contentsOf: backup, encoding: .utf8)
-            textView.string = restoredText
-            isDirty = true
-            hasExternalConflict = false
+            let restoredText = try String(contentsOf: version.url, encoding: .utf8)
             persistActiveLedgerSession()
-            write(to: url)
+            let document = ledgerSessions[activeLedgerIndex].document
+
+            // Preserve an unsaved editor state as an automatic recovery
+            // snapshot before replacing it with the selected history entry.
+            if isDirty {
+                _ = try document.save(to: url)
+            }
+            document.replaceText(restoredText, markingDirty: false)
+            _ = try document.save(to: url)
+            textView.string = document.text
+            isDirty = document.isDirty
+            hasExternalConflict = document.hasExternalConflict
+            lastKnownFileSignature = document.signature
+            persistActiveLedgerSession()
+            updateDocumentChrome()
+            scheduleParse(immediately: true)
             statusLabel.stringValue = ui("已还原较早版本；还原前版本已备份", "Previous version restored; the pre-restore version was backed up")
         } catch {
             presentError(ui("无法还原备份：\(error.localizedDescription)", "Could not restore backup: \(error.localizedDescription)"))
