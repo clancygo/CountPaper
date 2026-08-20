@@ -17,7 +17,10 @@ enum CountPaperTheme {
     static let canvas = paper
     static let surface = NSColor.textBackgroundColor
     static let raisedSurface = NSColor.controlBackgroundColor
-    static let softSurface = NSColor.underPageBackgroundColor
+    /// A sidebar is part of the same paper sheet, not a separate grey page.
+    /// `underPageBackgroundColor` becomes surprisingly heavy in inactive
+    /// windows, so it is deliberately not used for CountPaper's chrome.
+    static let softSurface = paper
 
     // System semantic colours — do not replace these with calibrated RGB.
     static let border = NSColor.separatorColor

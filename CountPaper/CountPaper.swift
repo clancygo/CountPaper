@@ -2149,7 +2149,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
             (ui("保存", "Save"), "square.and.arrow.down", #selector(saveDocument(_:)))
         ] {
             let button = NSButton(title: "", target: self, action: action)
-            button.isBordered = false; button.wantsLayer = true; button.layer?.cornerRadius = 6; button.layer?.backgroundColor = CountPaperTheme.softSurface.cgColor
+            button.isBordered = false; button.wantsLayer = true; button.layer?.cornerRadius = 6
+            button.layer?.backgroundColor = CountPaperTheme.surface.cgColor
+            button.layer?.borderWidth = 0.6; button.layer?.borderColor = CountPaperTheme.border.cgColor
             button.controlSize = .small
             let symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: name)?.withSymbolConfiguration(symbolConfiguration)
