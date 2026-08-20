@@ -14,7 +14,7 @@ fi
 
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources" "$build_dir/module-cache"
 setopt null_glob
-swift_sources=("$script_dir"/*.swift "$script_dir"/Core/*.swift "$script_dir"/Documents/*.swift "$script_dir"/Features/**/*.swift "$script_dir"/UI/*.swift)
+swift_sources=("$script_dir"/*.swift "$script_dir"/App/*.swift "$script_dir"/Core/*.swift "$script_dir"/Documents/*.swift "$script_dir"/Features/**/*.swift "$script_dir"/UI/*.swift)
 DEVELOPER_DIR="$developer_dir" xcrun swiftc -O -framework Cocoa -module-cache-path "$build_dir/module-cache" "${swift_sources[@]}" -o "$app_path/Contents/MacOS/CountPaper"
 cp "$script_dir/Info.plist" "$app_path/Contents/Info.plist"
 if [[ -f "$script_dir/Assets/CountPaperIcon.icns" ]]; then

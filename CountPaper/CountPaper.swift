@@ -2,27 +2,6 @@ import Cocoa
 import CoreServices
 import UniformTypeIdentifiers
 
-enum CountPaperPreference {
-    static let multipleAmounts = "preferences.multipleAmounts"
-    static let multipleAmountsMigrated = "preferences.multipleAmountsMigrated"
-    static let checkBalanceOnOpen = "preferences.checkBalanceOnOpen"
-    static let language = "preferences.language"
-    /// A user-chosen external editor for opening the plain-text ledger file.
-    /// An empty value deliberately means "let macOS choose".
-    static let sourceEditorApplicationPath = "preferences.sourceEditorApplicationPath"
-    static let workspaceSidePanelMode = "workspace.sidePanelMode"
-    static let workspaceReportKind = "workspace.reportKind"
-    static let workspaceReportsAllLedgers = "workspace.reportsAllLedgers"
-    static let workspaceReconciliationNewestFirst = "workspace.reconciliationNewestFirst"
-    static let workspaceReportMonth = "workspace.reportMonth"
-    static let workspaceReportStartDate = "workspace.reportStartDate"
-    static let workspaceReportEndDate = "workspace.reportEndDate"
-    static let workspaceReportTag = "workspace.reportTag"
-    static let workspaceReportAccount = "workspace.reportAccount"
-}
-
-enum AppLanguage: String { case chinese, english }
-
 enum LedgerTransactionUIKind { case expense, income, transfer, other }
 
 struct LedgerTransactionUIInfo {
