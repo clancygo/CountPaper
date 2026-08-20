@@ -26,3 +26,14 @@ struct LedgerTransactionUIInfo {
         }
     }
 }
+
+func ledgerAccountDisplayName(_ account: String) -> String {
+    let components = account.split(separator: ":").map(String.init)
+    return components.count > 1 ? components.dropFirst().joined(separator: " · ") : account
+}
+
+func ledgerTransactionDisplayAmount(_ entry: LedgerTransaction) -> Decimal {
+    if let expense = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) { return expense.amount }
+    if let income = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) { return -income.amount }
+    return entry.postings.first(where: { $0.amount > .zero })?.amount ?? entry.postings.first?.amount ?? .zero
+}

@@ -2,11 +2,6 @@ import Cocoa
 import CoreServices
 import UniformTypeIdentifiers
 
-func ledgerAccountDisplayName(_ account: String) -> String {
-    let components = account.split(separator: ":").map(String.init)
-    return components.count > 1 ? components.dropFirst().joined(separator: " · ") : account
-}
-
 func ledgerTransactionUIInfo(_ entry: LedgerTransaction) -> LedgerTransactionUIInfo {
     let amount = ledgerTransactionDisplayAmount(entry)
     if let category = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) {
@@ -21,12 +16,6 @@ func ledgerTransactionUIInfo(_ entry: LedgerTransaction) -> LedgerTransactionUII
         return LedgerTransactionUIInfo(kind: .transfer, category: nil, account: ledgerAccountDisplayName(entry.postings[1].account), destinationAccount: ledgerAccountDisplayName(entry.postings[0].account), amount: amount)
     }
     return LedgerTransactionUIInfo(kind: .other, category: nil, account: entry.postings.first.map { ledgerAccountDisplayName($0.account) }, destinationAccount: nil, amount: amount)
-}
-
-func ledgerTransactionDisplayAmount(_ entry: LedgerTransaction) -> Decimal {
-    if let expense = entry.postings.first(where: { isLedgerAccount($0.account, .expense) }) { return expense.amount }
-    if let income = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) { return -income.amount }
-    return entry.postings.first(where: { $0.amount > .zero })?.amount ?? entry.postings.first?.amount ?? .zero
 }
 
 /// The UI presents one human-facing signed amount per transaction.  The
