@@ -1033,30 +1033,6 @@ final class AccountBalanceLabelBinder: NSObject {
 /// CountPaper retains a live source document in memory. Command-W shelves the
 /// window instead of closing the last native window, avoiding the termination
 /// path while keeping the requested shortcut behaviour.
-final class CountPaperWindow: NSWindow {
-    var onCommandW: (() -> Void)?
-
-    override func sendEvent(_ event: NSEvent) {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if event.type == .keyDown,
-           modifiers == .command,
-           event.charactersIgnoringModifiers?.lowercased() == "w" {
-            onCommandW?()
-            return
-        }
-        super.sendEvent(event)
-    }
-
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if modifiers == .command, event.charactersIgnoringModifiers?.lowercased() == "w" {
-            onCommandW?()
-            return true
-        }
-        return super.performKeyEquivalent(with: event)
-    }
-}
-
 /// A compact native chart: muted bars communicate monthly income/expense, while
 /// the line keeps the period's net result visible without introducing a web view.
 final class PersonalReportChartView: NSView {
