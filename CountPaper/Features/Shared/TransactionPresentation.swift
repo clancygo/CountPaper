@@ -37,3 +37,14 @@ func ledgerTransactionDisplayAmount(_ entry: LedgerTransaction) -> Decimal {
     if let income = entry.postings.first(where: { isLedgerAccount($0.account, .income) }) { return -income.amount }
     return entry.postings.first(where: { $0.amount > .zero })?.amount ?? entry.postings.first?.amount ?? .zero
 }
+
+func ledgerTransactionDetail(_ entry: LedgerTransaction) -> String {
+    var parts = [entry.summary]
+    if let payee = entry.payee, !payee.isEmpty { parts.append(payee) }
+    if !entry.tags.isEmpty { parts.append(entry.tags.map { "#\($0)" }.joined(separator: " ")) }
+    return parts.joined(separator: " · ")
+}
+
+func ledgerTransactionDateTime(_ entry: LedgerTransaction) -> String {
+    entry.time.map { "\(entry.date) \($0)" } ?? entry.date
+}

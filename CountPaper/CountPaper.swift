@@ -31,13 +31,6 @@ func ledgerTransactionAmountText(_ entry: LedgerTransaction) -> String {
     return "\(prefix)\(LedgerParser.format(abs(info.amount)))"
 }
 
-func ledgerTransactionDetail(_ entry: LedgerTransaction) -> String {
-    var parts = [entry.summary]
-    if let payee = entry.payee, !payee.isEmpty { parts.append(payee) }
-    if !entry.tags.isEmpty { parts.append(entry.tags.map { "#\($0)" }.joined(separator: " ")) }
-    return parts.joined(separator: " · ")
-}
-
 func ledgerTransactionJournalDetail(_ entry: LedgerTransaction, english: Bool) -> String {
     [ledgerTransactionDetail(entry), ledgerTransactionUIInfo(entry).context(english: english)]
         .filter { !$0.isEmpty }
@@ -68,10 +61,6 @@ func chronologicallyOrderedTransactions(_ entries: [LedgerTransaction]) -> [Ledg
         if ($0.time ?? "") != ($1.time ?? "") { return ($0.time ?? "") < ($1.time ?? "") }
         return $0.startLine < $1.startLine
     }
-}
-
-func ledgerTransactionDateTime(_ entry: LedgerTransaction) -> String {
-    entry.time.map { "\(entry.date) \($0)" } ?? entry.date
 }
 
 func signedLedgerAmount(_ value: Decimal) -> String {
