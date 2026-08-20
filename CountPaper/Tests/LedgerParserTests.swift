@@ -29,6 +29,8 @@ struct LedgerParserTests {
         """
         let report = LedgerParser.parse(sample)
         let coreReport = LedgerCoreParser.parse(sample)
+        let syntaxKinds = Set(ledgerSyntaxTokens(in: sample).map(\.kind))
+        expect(syntaxKinds.isSuperset(of: [.frontMatter, .accountMarker, .date, .transaction, .metadata, .account, .amount, .tag]), "0.2 高亮器必须识别文件头、账户区、日期、交易、元数据、分录和标签")
         expect(coreReport == report, "Core Parser 与既有严格 0.2 Parser 必须产生完全相同的报告")
         expect(report.diagnostics.isEmpty, "有效的大纲账本不应报错")
         expect(report.transactions == 2 && report.balances["资产:现金"] == Decimal(string: "967.50"), "大纲分录应正确计算余额")

@@ -1,6 +1,9 @@
 import Foundation
 
-enum LedgerSyntaxKind: Hashable { case comment, directive, date, account, amount }
+/// Lexical categories mirror CountPaper 0.2's Markdown-outline grammar.
+enum LedgerSyntaxKind: Hashable {
+    case comment, frontMatter, accountMarker, date, transaction, metadata, account, amount, tag, link
+}
 
 struct LedgerSyntaxToken {
     let kind: LedgerSyntaxKind
@@ -11,7 +14,17 @@ struct LedgerSyntaxToken {
 /// never participate in parsing, saving, or source edits.
 func ledgerSyntaxTokens(in text: String) -> [LedgerSyntaxToken] {
     let source = text as NSString
-    var tokens: [LedgerSyntaxToken] = []; var location = 0
+    var tokens: [LedgerSyntaxToken] = []
+    var location = 0
+    var inFrontMatter = false
+    var sawFrontMatter = false
+    var inAccountSection = false
+
+    func add(_ kind: LedgerSyntaxKind, _ location: Int, _ length: Int) {
+        guard length > 0 else { return }
+        tokens.append(LedgerSyntaxToken(kind: kind, range: NSRange(location: location, length: length)))
+    }
+
     while location < source.length {
         let lineRange = source.lineRange(for: NSRange(location: location, length: 0))
         let line = source.substring(with: lineRange)
@@ -20,19 +33,46 @@ func ledgerSyntaxTokens(in text: String) -> [LedgerSyntaxToken] {
         let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedRange = source.range(of: trimmed, options: [], range: contentRange)
         let contentStart = trimmedRange.location == NSNotFound ? lineRange.location : trimmedRange.location
-        if trimmed.hasPrefix(";") {
-            tokens.append(LedgerSyntaxToken(kind: .comment, range: contentRange))
-        } else if ["账本", "本位币", "账户", "账户备注", "预算", "对账", "事件"].contains(where: { trimmed.hasPrefix($0 + " ") }) {
-            let keyword = trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" }).first.map(String.init) ?? ""
-            tokens.append(LedgerSyntaxToken(kind: .directive, range: NSRange(location: contentStart, length: keyword.utf16.count)))
-        } else if trimmed.range(of: "^\\d{4}-\\d{2}-\\d{2}(?:\\s|$)", options: .regularExpression) != nil {
-            tokens.append(LedgerSyntaxToken(kind: .date, range: NSRange(location: contentStart, length: 10)))
-        } else if !trimmed.isEmpty, line.first?.isWhitespace == true {
-            let parts = trimmed.split(whereSeparator: { $0 == " " || $0 == "\t" })
-            if let account = parts.first { tokens.append(LedgerSyntaxToken(kind: .account, range: NSRange(location: contentStart, length: String(account).utf16.count))) }
-            if let amount = parts.last, Decimal(string: String(amount), locale: Locale(identifier: "en_US_POSIX")) != nil {
-                let amountRange = (line as NSString).range(of: String(amount), options: .backwards, range: NSRange(location: 0, length: contentLength))
-                if amountRange.location != NSNotFound { tokens.append(LedgerSyntaxToken(kind: .amount, range: NSRange(location: lineRange.location + amountRange.location, length: amountRange.length))) }
+        if trimmed == "---" {
+            add(.frontMatter, contentStart, trimmed.utf16.count)
+            if !sawFrontMatter { sawFrontMatter = true; inFrontMatter = true }
+            else if inFrontMatter { inFrontMatter = false }
+        } else if inFrontMatter {
+            if trimmed.hasPrefix(";") { add(.comment, contentStart, trimmed.utf16.count) }
+            else if let colon = trimmed.firstIndex(of: ":") {
+                let key = String(trimmed[..<colon])
+                add(.frontMatter, contentStart, key.utf16.count)
+            }
+        } else if trimmed.hasPrefix(";") {
+            add(.comment, contentStart, trimmed.utf16.count)
+        } else if trimmed == "@账户" || trimmed == "@accounts" {
+            inAccountSection = true; add(.accountMarker, contentStart, trimmed.utf16.count)
+        } else if line.hasPrefix("# ") {
+            inAccountSection = false; add(.date, lineRange.location, contentLength)
+        } else if line.hasPrefix("- ") {
+            if inAccountSection { add(.account, lineRange.location + 2, max(0, contentLength - 2)) }
+            else { add(.transaction, lineRange.location, contentLength) }
+        } else if line.hasPrefix("  - ") {
+            let bodyStart = lineRange.location + 4
+            let body = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            let metadataPrefixes = ["时间:", "时间：", "time:", "收款方:", "收款方：", "标签:", "标签：", "链接:", "链接："]
+            if let prefix = metadataPrefixes.first(where: { body.hasPrefix($0) }) {
+                add(.metadata, bodyStart, prefix.utf16.count)
+                let valueStart = bodyStart + prefix.utf16.count
+                if prefix.hasPrefix("标签") {
+                    let value = String(body.dropFirst(prefix.count))
+                    for tag in value.split(whereSeparator: { $0 == "," || $0 == "，" || $0 == " " || $0 == "\t" }) {
+                        let name = String(tag); let offset = (body as NSString).range(of: name).location
+                        if offset != NSNotFound { add(.tag, bodyStart + offset, name.utf16.count) }
+                    }
+                } else if prefix.hasPrefix("链接") { add(.link, valueStart, max(0, body.utf16.count - prefix.utf16.count)) }
+            } else {
+                let parts = body.split(whereSeparator: { $0 == " " || $0 == "\t" })
+                if let account = parts.first { add(.account, bodyStart, String(account).utf16.count) }
+                if let amount = parts.last, Decimal(string: String(amount), locale: Locale(identifier: "en_US_POSIX")) != nil {
+                    let amountRange = (body as NSString).range(of: String(amount), options: .backwards)
+                    if amountRange.location != NSNotFound { add(.amount, bodyStart + amountRange.location, amountRange.length) }
+                }
             }
         }
         location = NSMaxRange(lineRange)

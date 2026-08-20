@@ -4154,10 +4154,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
         }
         let colors: [LedgerSyntaxKind: NSColor] = [
             .comment: .tertiaryLabelColor,
-            .directive: muted(.systemTeal),
+            .frontMatter: muted(.systemTeal),
+            .accountMarker: muted(.systemTeal),
             .date: muted(.systemBlue),
+            .transaction: CountPaperTheme.ink,
+            .metadata: muted(.systemTeal),
             .account: muted(.systemPurple),
-            .amount: muted(.systemOrange)
+            .amount: muted(.systemOrange),
+            .tag: muted(.systemPink),
+            .link: muted(.systemBlue)
         ]
         for token in ledgerSyntaxTokens(in: textView.string) where NSMaxRange(token.range) <= storage.length {
             storage.addAttribute(.foregroundColor, value: colors[token.kind] ?? .labelColor, range: token.range)
