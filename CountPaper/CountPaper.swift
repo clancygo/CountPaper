@@ -2587,11 +2587,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate, NS
 
     private func persistActiveLedgerSession() {
         guard ledgerSessions.indices.contains(activeLedgerIndex) else { return }
-        ledgerSessions[activeLedgerIndex].url = documentURL
-        ledgerSessions[activeLedgerIndex].text = textView.string
-        ledgerSessions[activeLedgerIndex].isDirty = isDirty
-        ledgerSessions[activeLedgerIndex].signature = lastKnownFileSignature
-        ledgerSessions[activeLedgerIndex].hasExternalConflict = hasExternalConflict
+        let document = ledgerSessions[activeLedgerIndex].document
+        document.replaceText(textView.string, markingDirty: false)
+        document.update(url: documentURL, signature: lastKnownFileSignature, isDirty: isDirty, hasExternalConflict: hasExternalConflict)
         ledgerSessions[activeLedgerIndex].selection = textView.selectedRange()
     }
 

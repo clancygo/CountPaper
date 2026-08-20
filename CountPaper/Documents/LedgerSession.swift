@@ -13,11 +13,13 @@ struct LedgerSession {
     }
 
     var id: UUID { document.id }
-    var url: URL? { get { document.url } set { document.url = newValue } }
-    var text: String { get { document.text } set { document.replaceText(newValue, markingDirty: false) } }
-    var isDirty: Bool { get { document.isDirty } set { document.update(url: document.url, signature: document.signature, isDirty: newValue, hasExternalConflict: document.hasExternalConflict) } }
-    var signature: LedgerFileSignature? { get { document.signature } set { document.update(url: document.url, signature: newValue, isDirty: document.isDirty, hasExternalConflict: document.hasExternalConflict) } }
-    var hasExternalConflict: Bool { get { document.hasExternalConflict } set { document.update(url: document.url, signature: document.signature, isDirty: document.isDirty, hasExternalConflict: newValue) } }
+    // Deliberately read-only views of document state. Session must never be a
+    // second mutation path for file URL, text, dirty state or conflicts.
+    var url: URL? { document.url }
+    var text: String { document.text }
+    var isDirty: Bool { document.isDirty }
+    var signature: LedgerFileSignature? { document.signature }
+    var hasExternalConflict: Bool { document.hasExternalConflict }
 }
 
 func dirtyLedgerSessionIndexes(_ sessions: [LedgerSession]) -> [Int] { sessions.indices.filter { sessions[$0].isDirty } }
